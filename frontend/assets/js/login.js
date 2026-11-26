@@ -68,9 +68,6 @@ async function postImage(url, blob) {
 
 const detail = (j, fallback) => (typeof j.detail === 'string' ? j.detail : fallback);
 
-// App name from the public health endpoint (the brand logo stays Augastam).
-fetch('/api/v1/health').then((r) => r.json()).then((h) => { if (h.app) $('appName').textContent = h.app; }).catch(() => {});
-
 // ---------------------------------------------------------------- password sign-in
 const EYE = '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>';
 const EYE_OFF = '<path d="M3 3l18 18M10.6 10.6a3 3 0 004.2 4.2M9.9 5.1A10 10 0 0112 5c6.4 0 10 7 10 7a17 17 0 01-3.2 4M6.6 6.6A17 17 0 002 12s3.6 7 10 7a9.8 9.8 0 005.4-1.6"/>';

@@ -67,7 +67,6 @@ update this spec.
   Loop: one request in flight, every 600 ms → `/auth/quality`; 2 good frames in a row → the **same** frame to
   `/auth/face`. 401 → retry up to 3 times with a pause; 422 → advice, not counted; 429 → stop, no retry button.
   Leaving the step or the page releases the camera.
-- Branding: Augastam logo and hero copy from the original application; the app name (`app.name`) is shown on
-  the card. No web fonts are fetched (intranet); the font stack falls back to system fonts.
+- Branding: Augastam logo and hero copy from the original application, nothing added to the card header. No web fonts are fetched (intranet); the font stack falls back to system fonts.
 - Theme: same `fg-theme` key as the console, applied before first paint. `prefers-reduced-motion` stops every
   animation and the parallax.
