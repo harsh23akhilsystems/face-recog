@@ -35,7 +35,7 @@ Pages flagged `needsModels` show a notice listing missing model files and the co
 |---|---|---|
 | `#/overview` | `overview.js` | 4 KPI cards · hourly activity bars (UTC) · recent recognitions · model status (role, file, provider, Loaded/Missing/Disabled, error) · quick actions |
 | `#/live` | `live.js` | Camera/Photo toggle · camera picker · Start/Stop · Log-activity and Mirror switches · stage with box + label overlay and LIVE/fps HUD · matching-mode control (modes needing a missing model are disabled) · "In frame" panel with per-model meters |
-| `#/people` | `people.js` | Search · Add person (modal → person drawer) · card grid · **drawer**: Upload or Webcam capture, per-photo results, samples grid with delete, details form, Active switch, Delete with confirmation |
+| `#/people` | `people.js` | Search · Add person (modal with optional **Login**: username, password, role → person drawer) · card grid (key badge = has a login) · **drawer**: Upload or Webcam capture, per-photo results, samples grid with delete, **Sign-in account** (create login / reset password / remove login; admins with a password session only), details form, Active switch, Delete (also removes the login) with confirmation |
 | `#/verify` | `verify.js` | Two dropzones with previews and face boxes · Compare · verdict banner · meters per model + fusion |
 | `#/activity` | `activity.js` | Status filter · Refresh · Export CSV · events table; auto-refresh 15 s |
 | `#/settings` | `settings.js` | Mode cards · threshold sliders (models, fusion, margin) · logging switch + cooldown · Save / Discard |

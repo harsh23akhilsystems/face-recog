@@ -11,7 +11,8 @@ async function request(path, { method = 'GET', json, form, signal } = {}) {
   if (json !== undefined) { opts.body = JSON.stringify(json); opts.headers['Content-Type'] = 'application/json'; }
   if (form) opts.body = form;
   let res;
-  try { res = await fetch(BASE + path, opts); } catch (e) {
+  const url = path.startsWith('/auth/') ? path : BASE + path; // sign-in/user routes live outside /api/v1
+  try { res = await fetch(url, opts); } catch (e) {
     if (e.name === 'AbortError') throw e;
     throw new ApiError(0, 'Cannot reach the FaceGate server. Is it running?');
   }
@@ -61,4 +62,13 @@ export const api = {
     return request('/events' + (qs.toString() ? `?${qs}` : ''));
   },
   eventThumb: (id) => `${BASE}/events/${id}/thumb`,
+
+  // Sign-in accounts (admin with a password session only)
+  users: () => request('/auth/users'),
+  createUser: (body) => request('/auth/users', { method: 'POST', json: body }),
+  updateUser: (id, body) => request(`/auth/users/${id}`, { method: 'PATCH', json: body }),
+  deleteUser: (id) => request(`/auth/users/${id}`, { method: 'DELETE' }),
 };
+
+/** Admins signed in with a password may manage sign-in accounts (the server enforces the same rule). */
+export const canManageUsers = (me) => me?.user?.role === 'admin' && me?.method === 'password';

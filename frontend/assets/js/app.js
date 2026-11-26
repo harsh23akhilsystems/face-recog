@@ -11,7 +11,7 @@ import * as activity from './pages/activity.js';
 import * as settings from './pages/settings.js';
 
 const ROUTES = { overview, live, people, verify, activity, settings };
-const state = { health: null };
+const state = { health: null, me: null };
 let cleanup = null;
 
 async function refreshHealth() {
@@ -88,6 +88,7 @@ function initTheme() {
 async function initUser() {
   const me = await auth.me();
   if (!me) { location.replace('/login'); return; }
+  state.me = me;
   const u = me.user;
   document.getElementById('user-name').textContent = u.display_name;
   document.getElementById('user-how').textContent =
@@ -104,6 +105,5 @@ window.addEventListener('hashchange', navigate);
 window.addEventListener('fg:health', refreshHealth);
 initTheme();
 hydrateIcons(document);
-initUser();
-refreshHealth().then(navigate);
+initUser().then(refreshHealth).then(navigate);
 setInterval(refreshHealth, 30000);

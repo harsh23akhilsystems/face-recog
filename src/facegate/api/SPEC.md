@@ -84,5 +84,6 @@ curl -s -F image=@door.jpg -F mode=strict -F source=door-1 localhost:8100/api/v1
 | PATCH | `/auth/users/{id}` | admin | any of `display_name, role, person_id ("" unlinks), password` | password change ends that user's sessions; 409 demoting the last admin |
 | DELETE | `/auth/users/{id}` | admin | | 204; soft delete (audit trail kept), sessions ended; 409 on yourself |
 
-`user` = `{id, username, display_name, role, person_id, face_login, created_at}`. "admin" = role `admin` **and** a
+`user` = `{id, username, display_name, role, person_id, face_login, created_at}` (`GET /auth/users` adds `person_name`).
+The People page uses these routes to create a person's login at registration time. "admin" = role `admin` **and** a
 password session. Face-sign-in framing failures (422) are logged as `rejected` and do not count towards lockout.

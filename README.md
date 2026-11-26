@@ -74,7 +74,8 @@ falls back to the available model.
 
 The console and every `/api/v1` route (except `/health`) need a signed-in session. The login page (`/login`) offers:
 
-- **Password** — accounts are managed with the CLI or the admin API (`/auth/users`).
+- **Password** — an admin creates logins on the **People** page (Add person → *Login*, or a person's
+  *Sign-in account* section), or with the CLI / admin API (`/auth/users`).
 - **Face** — for users whose account is *linked* to their person in the gallery. It uses the same SCRFD + ArcFace /
   AdaFace models and the same enrolled photos as recognition, matched in `auth.face_mode` (`strict` by default). The
   camera view guides the user (scan animation, "move closer", "too dark", …) and only submits a frame once it passes

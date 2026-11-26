@@ -1,14 +1,26 @@
 // People: searchable gallery, add/edit/delete people, and enroll face samples by upload or webcam.
 // Enrollment results show per-photo accept/reject reasons so HR staff can fix bad photos immediately.
+// Admins (password session) can also give a person a sign-in account: username + password, linked to the person,
+// so they can sign in with that password or — once photos are enrolled — with their face.
 
-import { api } from '../api.js';
+import { api, canManageUsers } from '../api.js';
 import { Camera } from '../camera.js';
 import {
   avatar, bindDropzone, confirmDialog, emptyState, esc, fmtTime, icon, loadingRow, openDrawer, openModal, toast,
 } from '../ui.js';
 
 export const title = 'People';
-export const subtitle = 'Enrolled staff and their face samples';
+export const subtitle = 'Enrolled staff, their face samples and sign-in accounts';
+
+let appState = {};
+let usersByPerson = new Map(); // person_id -> user (admins only)
+const isAdmin = () => canManageUsers(appState.me);
+
+async function loadUsers() {
+  usersByPerson = new Map();
+  if (!isAdmin()) return;
+  try { for (const u of await api.users()) if (u.person_id) usersByPerson.set(u.person_id, u); } catch { /* not fatal */ }
+}
 
 export function render(root, state, actions) {
   actions.innerHTML = `
@@ -26,18 +38,20 @@ const personCard = (p) => `
       <div class="row" style="gap:6px;margin-top:6px">
         ${p.sample_count ? `<span class="badge info plain">${p.sample_count} photo${p.sample_count === 1 ? '' : 's'}</span>` : '<span class="badge warning">No photos</span>'}
         ${p.active ? '' : '<span class="badge">Inactive</span>'}
+        ${usersByPerson.has(p.id) ? `<span class="badge success plain" title="Sign-in username">${icon('key')} ${esc(usersByPerson.get(p.id).username)}</span>` : ''}
       </div>
     </div>
   </button>`;
 
 export async function mounted(root, state, actions) {
+  appState = state;
   const list = root.querySelector('#people');
   let timer;
 
   const load = async () => {
     const q = actions.querySelector('#q').value.trim();
     try {
-      const people = await api.people(q);
+      const [people] = await Promise.all([api.people(q), loadUsers()]);
       list.innerHTML = people.length
         ? `<div class="people-grid">${people.map(personCard).join('')}</div>`
         : q ? emptyState('search', 'No matches', `Nobody matches “${esc(q)}”.`)
@@ -49,7 +63,7 @@ export async function mounted(root, state, actions) {
 
   actions.querySelector('#q').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(load, 200); });
   actions.querySelector('#add-person').addEventListener('click', () => addPerson(load));
-  list.addEventListener('click', (e) => { const c = e.target.closest('.person-card'); if (c) openPerson(c.dataset.id, load, state); });
+  list.addEventListener('click', (e) => { const c = e.target.closest('.person-card'); if (c) openPerson(c.dataset.id, load); });
   await load();
   if (location.hash.includes('new=1')) addPerson(load);
 }
@@ -71,11 +85,30 @@ const readForm = (el) => ({
   notes: el.querySelector('#f-notes').value.trim() || null,
 });
 
+function loginFields(suggested = '') {
+  return `
+    <div class="grid grid-2">
+      <div class="field"><label for="u-name">Username</label><input class="input" id="u-name" maxlength="120" autocomplete="off" value="${esc(suggested)}" /></div>
+      <div class="field"><label for="u-pass">Password</label><input class="input" id="u-pass" type="password" minlength="8" maxlength="256" autocomplete="new-password" /></div>
+    </div>
+    <div class="field"><label for="u-role">Role</label>
+      <select class="select" id="u-role"><option value="staff">Staff — uses the console</option><option value="admin">Admin — can also manage logins</option></select></div>`;
+}
+const readLogin = (el) => ({
+  username: el.querySelector('#u-name').value.trim(),
+  password: el.querySelector('#u-pass').value,
+  role: el.querySelector('#u-role').value,
+});
+
 function addPerson(onDone) {
+  const admin = isAdmin();
   const m = openModal(`
     <form id="person-form">
       <div class="modal-head"><h2>Add person</h2><p class="small muted">You will add face photos in the next step.</p></div>
-      <div class="modal-body">${personForm()}</div>
+      <div class="modal-body">${personForm()}
+        ${admin ? `<fieldset class="fieldset"><legend>Login <span class="muted small">(optional)</span></legend>
+          <p class="small muted" style="margin:0 0 8px">Lets this person sign in with this password, and with their face once photos are added.</p>
+          ${loginFields()}</fieldset>` : ''}</div>
       <div class="modal-foot"><button class="btn" type="button" data-close>Cancel</button>
       <button class="btn btn-primary" type="submit">Continue</button></div>
     </form>`);
@@ -83,9 +116,20 @@ function addPerson(onDone) {
     e.preventDefault();
     const body = readForm(m.el);
     if (!body.name) return;
+    const login = admin ? readLogin(m.el) : null;
+    if (login && (login.username || login.password) && !(login.username && login.password.length >= 8)) {
+      toast('For a login, enter a username and a password of at least 8 characters — or leave both empty.', 'warning');
+      return;
+    }
     try {
       const p = await api.createPerson(body);
-      m.close(); toast(`${p.name} added`, 'success');
+      if (login?.username) {
+        try {
+          await api.createUser({ ...login, display_name: p.name, person_id: p.id });
+          toast(`${p.name} added with login “${login.username}”`, 'success');
+        } catch (err) { toast(`${p.name} added, but the login was not created: ${err.message}`, 'warning'); }
+      } else toast(`${p.name} added`, 'success');
+      m.close();
       await onDone(); openPerson(p.id, onDone);
     } catch (err) { toast(err.message, 'error'); }
   });
@@ -129,6 +173,10 @@ async function openPerson(id, onChange) {
         <div class="card-head"><h3>Face samples <span class="muted" id="s-count"></span></h3></div>
         <div class="card-body" id="samples"></div>
       </section>
+      ${isAdmin() ? `<section class="card">
+        <div class="card-head"><h3>Sign-in account</h3><span class="small muted">password and face sign-in</span></div>
+        <div class="card-body stack" id="account"></div>
+      </section>` : ''}
       <section class="card">
         <div class="card-head"><h3>Details</h3></div>
         <form class="card-body stack" id="edit-form">${personForm(person)}
@@ -156,8 +204,62 @@ async function openPerson(id, onChange) {
           <button class="btn btn-sm btn-icon btn-danger" data-sid="${esc(x.id)}" aria-label="Delete sample">${icon('trash')}</button></div>`).join('')}</div>`
       : emptyState('image', 'No face samples', 'This person cannot be recognised until at least one photo is added.');
   };
-  const reload = async () => { person = await api.person(id); paintHeader(); paintSamples(); };
-  paintHeader(); paintSamples();
+  const paintAccount = () => {
+    const box = $('#account');
+    if (!box) return;
+    const u = usersByPerson.get(id);
+    const hasPhotos = (person.samples || []).length > 0;
+    if (!u) {
+      box.innerHTML = `
+        <p class="small muted" style="margin:0">No login yet. Create one so ${esc(person.name)} can sign in with a password${hasPhotos ? ' or their face' : ', and with their face once photos are added'}.</p>
+        <form class="stack" id="acc-create">${loginFields(person.employee_id || '')}
+          <div class="row"><button class="btn btn-primary" type="submit">${icon('key')}Create login</button></div></form>`;
+      return;
+    }
+    box.innerHTML = `
+      <div class="row" style="gap:8px;flex-wrap:wrap">
+        <span class="badge success plain">${icon('key')} ${esc(u.username)}</span>
+        <span class="badge plain">${u.role === 'admin' ? 'Admin' : 'Staff'}</span>
+        ${hasPhotos ? `<span class="badge success plain">${icon('checkCircle')} Face sign-in ready</span>`
+          : '<span class="badge warning">Face sign-in needs photos — add some above</span>'}
+      </div>
+      <form class="row" id="acc-pass" style="align-items:flex-end;flex-wrap:wrap">
+        <div class="field" style="flex:1;min-width:180px;margin:0"><label for="acc-new">New password</label>
+          <input class="input" id="acc-new" type="password" minlength="8" maxlength="256" autocomplete="new-password" /></div>
+        <button class="btn" type="submit">Reset password</button>
+      </form>
+      <div class="row"><span class="small muted">Removing the login keeps the person and their photos.</span><span class="spacer"></span>
+        <button class="btn btn-danger btn-sm" type="button" id="acc-remove">${icon('trash')}Remove login</button></div>`;
+  };
+  const accountEvents = () => {
+    const box = $('#account');
+    if (!box) return;
+    box.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try {
+        if (e.target.id === 'acc-create') {
+          const login = readLogin(box);
+          if (!login.username || login.password.length < 8) { toast('Enter a username and a password of at least 8 characters.', 'warning'); return; }
+          const u = await api.createUser({ ...login, display_name: person.name, person_id: id });
+          usersByPerson.set(id, u); toast(`Login “${u.username}” created`, 'success');
+        } else if (e.target.id === 'acc-pass') {
+          const pw = box.querySelector('#acc-new').value;
+          if (pw.length < 8) { toast('Password must be at least 8 characters.', 'warning'); return; }
+          await api.updateUser(usersByPerson.get(id).id, { password: pw });
+          toast('Password changed; their open sessions were signed out', 'success');
+        }
+        paintAccount();
+      } catch (err) { toast(err.message, 'error'); }
+    });
+    box.addEventListener('click', async (e) => {
+      if (!e.target.closest('#acc-remove')) return;
+      const u = usersByPerson.get(id);
+      if (!(await confirmDialog({ title: `Remove login “${u.username}”?`, body: `${person.name} will no longer be able to sign in with a password or their face. Their photos stay.`, confirm: 'Remove login', danger: true }))) return;
+      try { await api.deleteUser(u.id); usersByPerson.delete(id); paintAccount(); toast('Login removed', 'success'); } catch (err) { toast(err.message, 'error'); }
+    });
+  };
+  const reload = async () => { person = await api.person(id); paintHeader(); paintSamples(); paintAccount(); };
+  paintHeader(); paintSamples(); paintAccount(); accountEvents();
 
   const enroll = async (files) => {
     $('#results').innerHTML = `<div class="result"><span class="spinner"></span> Processing ${files.length} photo${files.length === 1 ? '' : 's'}…</div>`;
@@ -205,7 +307,11 @@ async function openPerson(id, onChange) {
     } catch (err) { toast(err.message, 'error'); }
   });
   $('#delete').addEventListener('click', async () => {
-    if (!(await confirmDialog({ title: `Delete ${person.name}?`, body: 'Their profile, all face samples and embeddings are deleted permanently. Activity log entries are kept but unlinked.', confirm: 'Delete person', danger: true }))) return;
-    try { await api.deletePerson(id); toast(`${person.name} deleted`, 'success'); d.close(); } catch (err) { toast(err.message, 'error'); }
+    if (!(await confirmDialog({ title: `Delete ${person.name}?`, body: `Their profile, all face samples and embeddings are deleted permanently. Activity log entries are kept but unlinked.${usersByPerson.has(id) ? ' Their login is removed too.' : ''}`, confirm: 'Delete person', danger: true }))) return;
+    try {
+      const u = usersByPerson.get(id);
+      if (u) await api.deleteUser(u.id);
+      await api.deletePerson(id); toast(`${person.name} deleted`, 'success'); d.close();
+    } catch (err) { toast(err.message, 'error'); }
   });
 }

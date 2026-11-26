@@ -169,6 +169,9 @@ textarea.input { height: auto; padding: 8px 12px; min-height: 72px; resize: vert
 .badge.warning { background: var(--warning-soft); color: var(--warning); }
 .badge.danger { background: var(--danger-soft); color: var(--danger); }
 .badge.info { background: var(--primary-soft); color: var(--primary); }
+.badge .icon { width: 12px; height: 12px; }
+.fieldset { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px 4px; margin: 4px 0 0; }
+.fieldset legend { padding: 0 6px; font-weight: 600; font-size: 13px; }
 
 .segmented { display: inline-flex; padding: 3px; gap: 2px; background: var(--surface-2); border-radius: 10px; border: 1px solid var(--border); flex-wrap: wrap; }
 .segmented button { display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; color: var(--text-muted); font: inherit; font-weight: 550; font-size: 13px; padding: 6px 12px; border-radius: 7px; cursor: pointer; }
