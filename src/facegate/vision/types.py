@@ -19,6 +19,7 @@ class Face:
     kps: np.ndarray  # (5, 2) left eye, right eye, nose, left mouth, right mouth
     embeddings: dict[str, np.ndarray] = field(default_factory=dict)  # model name -> L2-normalised (D,)
     sharpness: float = 0.0
+    face_sharpness: float = 0.0  # inner-face blur score at 224 px (detect with quality=True only)
     crop: np.ndarray | None = None  # aligned 112x112 BGR crop
 
     @property

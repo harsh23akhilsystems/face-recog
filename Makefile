@@ -1,4 +1,4 @@
-d# FaceGate — developer commands. Run `make help`.
+# FaceGate — developer commands. Run `make help`.
 PY      ?= .venv/bin/python
 UV      ?= uv
 HOST    ?= 0.0.0.0

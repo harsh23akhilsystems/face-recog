@@ -34,7 +34,7 @@ def face_image(identity: int, variant: int = 0, faces: int = 1, size: int = 200)
 
 
 class FakeDetector:
-    def detect(self, img: np.ndarray) -> list[Face]:
+    def detect(self, img: np.ndarray, max_side: int | None = None) -> list[Face]:
         identity, _, n = (int(v) for v in img[0, 0])
         if identity == 0:
             return []

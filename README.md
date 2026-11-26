@@ -30,7 +30,8 @@ make models             # SCRFD + ArcFace from InsightFace buffalo_l (~280 MB do
 make serve              # http://localhost:8100  ·  API docs at /docs
 ```
 
-Then in the console: **People → Add person → upload 3–5 photos**, and open **Live recognition**.
+Then in the console: **People → Add person → Continue**: a voice-guided face scan opens the camera, you turn your
+head slowly and the best photo for every angle is picked and saved automatically (or upload 3–5 photos), then open **Live recognition**.
 
 > Webcam access requires `http://localhost` or HTTPS. To use cameras on other machines, put FaceGate behind a
 > TLS reverse proxy (see `SECURITY.md`).

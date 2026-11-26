@@ -12,12 +12,19 @@ Keeps enrolled identities and decides who a face belongs to.
 Single SQLite file at `paths.database` (default `data/facegate.db`, WAL mode, foreign keys on).
 
 ```
-people(id TEXT PK, name, employee_id UNIQUE NULL, department, notes, active INT, created_at, updated_at)
-samples(id TEXT PK, person_id → people ON DELETE CASCADE, det_score, sharpness, face_px, thumb BLOB NULL, created_at)
+people(id TEXT PK, name, employee_id UNIQUE NULL, department, notes, active INT, created_at, updated_at, profile_sample_id NULL)
+samples(id TEXT PK, person_id → people ON DELETE CASCADE, det_score, sharpness, face_px, thumb BLOB NULL, created_at, yaw NULL, pitch NULL)
 embeddings(sample_id → samples ON DELETE CASCADE, model TEXT, dim INT, vector BLOB float32[dim], PK(sample_id, model))
 events(id INT PK, ts, person_id → people ON DELETE SET NULL, name, status, score, mode, source, thumb BLOB NULL)
 ```
 
+- Columns added later (`MIGRATIONS`: `samples.yaw/pitch`, `people.profile_sample_id`) are created on open when missing.
+- **Profile photo** (`cover_sample_id` in person rows): `profile_sample_id` if it still exists for that person, else the
+  most frontal sample (`|yaw| + |pitch|`, unknown pose last), then best `sharpness × det_score`. Previously "sharpest"
+  alone often picked a chin-up shot.
+- `yaw`/`pitch` = `vision.align.head_pose` at enrollment. Samples from before are backfilled once at server start
+  (`FaceService.backfill_poses`, background thread): landmarks re-detected on the stored crop — the similarity warp
+  preserves the pose ratios.
 - Timestamps: ISO-8601 UTC, seconds precision.
 - `thumb`: 112×112 aligned face crop, JPEG (q 92 samples, q 85 events). Omitted for samples when
   `enrollment.store_thumbnails: false` (then `reembed` cannot regenerate that sample).

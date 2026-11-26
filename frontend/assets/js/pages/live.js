@@ -1,5 +1,7 @@
 // Live recognition: webcam → /recognize loop (one request in flight at a time) with box overlay,
 // plus an "upload a photo" mode for one-off checks. The right panel lists who is in frame.
+// By default only enrolled people (status "match") get a box; unknown/uncertain faces are hidden unless
+// "Show unknown" is on, so the view answers "who of our staff is here" without clutter from passers-by.
 
 import { api } from '../api.js';
 import { Camera } from '../camera.js';
@@ -25,6 +27,7 @@ export function render(root, state, actions) {
         </div>
         <div class="row">
           <label class="switch small" title="Write recognitions to the activity log"><input type="checkbox" id="log-toggle" checked /> Log activity</label>
+          <label class="switch small" title="Also draw boxes for faces that are not enrolled or not certain"><input type="checkbox" id="unknown-toggle" /> Show unknown</label>
           <label class="switch small"><input type="checkbox" id="mirror-toggle" checked /> Mirror</label>
         </div>
       </div>
@@ -91,17 +94,24 @@ export async function mounted(root, state, actions) {
   seg.addEventListener('click', (e) => { const b = e.target.closest('button'); if (b && !b.disabled) { mode = b.dataset.mode; paintMode(); } });
   paintMode();
 
+  const visible = (faces) => ($('#unknown-toggle').checked ? faces : faces.filter((f) => f.status === 'match'));
+  let lastRes = null;
   const renderSeen = (res) => {
+    lastRes = res;
     const list = $('#seen');
-    $('#frame-meta').textContent = res ? `${res.faces.length} face${res.faces.length === 1 ? '' : 's'} · ${res.elapsed_ms} ms` : '';
-    if (!res?.faces.length) { list.innerHTML = emptyState('users', 'Nobody in frame', 'Detected faces and their scores will appear here.'); return; }
-    list.innerHTML = res.faces.map((f) => seenItem(f, thresholds)).join('');
+    const shown = res ? visible(res.faces) : [];
+    const hidden = res ? res.faces.length - shown.length : 0;
+    $('#frame-meta').textContent = res
+      ? `${shown.length} recognised${hidden ? ` · ${hidden} unknown hidden` : ''} · ${res.elapsed_ms} ms` : '';
+    if (!shown.length) { list.innerHTML = emptyState('users', 'No enrolled person in frame', 'Recognised staff and their scores will appear here.'); return; }
+    list.innerHTML = shown.map((f) => seenItem(f, thresholds)).join('');
   };
 
   const redraw = () => {
     const showing = source === 'camera' ? cam.active : !preview.classList.contains('hidden');
-    drawFaces(canvas, lastSize[0], lastSize[1], showing ? lastFaces : [], { mirror: stage.classList.contains('mirror') });
+    drawFaces(canvas, lastSize[0], lastSize[1], showing ? visible(lastFaces) : [], { mirror: stage.classList.contains('mirror') });
   };
+  $('#unknown-toggle').addEventListener('change', () => { redraw(); if (lastRes) renderSeen(lastRes); });
   const ro = new ResizeObserver(redraw); ro.observe(stage);
 
   // --- camera loop

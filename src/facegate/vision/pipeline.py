@@ -16,14 +16,14 @@ import cv2
 import numpy as np
 
 from facegate.config import Settings
-from facegate.vision.align import norm_crop, sharpness
+from facegate.vision.align import face_sharpness, norm_crop, sharpness
 from facegate.vision.types import Face
 
 log = logging.getLogger(__name__)
 
 
 class Detector(Protocol):
-    def detect(self, img_bgr: np.ndarray) -> list[Face]: ...
+    def detect(self, img_bgr: np.ndarray, max_side: int | None = None) -> list[Face]: ...
 
 
 class Recognizer(Protocol):
@@ -108,11 +108,19 @@ class FacePipeline:
         return list(self.recognizers)
 
     # ------------------------------------------------------------------ inference
-    def detect(self, img_bgr: np.ndarray) -> list[Face]:
+    def detect(self, img_bgr: np.ndarray, quality: bool = False, max_side: int | None = None) -> list[Face]:
+        """Detect faces; with ``quality`` also attach the aligned crop and its sharpness (cheap, no embeddings).
+        ``max_side`` runs the detector at a smaller input (faster, for close-up faces such as guided capture)."""
         if self.detector is None:
             raise RuntimeError("Face detector is not loaded")
         with self._lock:
-            return self.detector.detect(img_bgr)
+            faces = self.detector.detect(img_bgr, max_side) if max_side else self.detector.detect(img_bgr)
+        if quality:
+            for face in faces:
+                face.crop = norm_crop(img_bgr, face.kps)
+                face.sharpness = sharpness(face.crop)
+                face.face_sharpness = face_sharpness(img_bgr, face.kps)
+        return faces
 
     def analyze(self, img_bgr: np.ndarray, max_faces: int | None = None) -> list[Face]:
         """Detect faces and attach aligned crops, sharpness and one embedding per recognizer."""

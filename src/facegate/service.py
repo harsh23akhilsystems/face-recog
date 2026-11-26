@@ -20,6 +20,7 @@ import numpy as np
 from facegate.config import Settings
 from facegate.gallery.matcher import Matcher, MatchResult, verify_scores
 from facegate.gallery.store import GalleryStore
+from facegate.vision.align import head_pose
 from facegate.vision.pipeline import FacePipeline, encode_jpeg
 from facegate.vision.types import Face
 
@@ -38,6 +39,7 @@ class EnrollOutcome:
     det_score: float | None = None
     sharpness: float | None = None
     face_px: float | None = None
+    duplicate_of: dict[str, Any] | None = None  # the already-enrolled person this face matches, if any
 
 
 class FaceService:
@@ -132,15 +134,28 @@ class FaceService:
             "det_score": round(face.score, 4),
             "landmarks": face.kps.round(1).tolist(),
             "sharpness": round(face.sharpness, 1),
+            "face_sharpness": round(face.face_sharpness, 1),
+            "pose": dict(zip(("yaw", "pitch"), (round(v, 3) for v in head_pose(face.kps)), strict=True)),
         }
 
     def _person_lookup(self, person_id: str | None) -> dict[str, Any] | None:
         return self.store.get_person(person_id) if person_id else None
 
     # ------------------------------------------------------------------ detection / recognition
-    def detect(self, img: np.ndarray) -> dict[str, Any]:
-        faces = self.pipeline.detect(img)
+    def detect(self, img: np.ndarray, max_side: int | None = None) -> dict[str, Any]:
+        faces = self.pipeline.detect(img, quality=True, max_side=max_side)
         return {"width": img.shape[1], "height": img.shape[0], "faces": [self._face_box(f) for f in faces]}
+
+    def enrollment_guide(self) -> dict[str, Any]:
+        """Everything the console's guided capture needs: the pose steps plus the same quality gates
+        ``enroll`` applies, so a frame accepted on the client is accepted by the server too."""
+        cfg = self.settings.enrollment
+        return cfg.guided.model_dump() | {
+            "min_face_px": cfg.min_face_px,
+            "min_det_score": cfg.min_det_score,
+            "min_sharpness": cfg.min_sharpness,
+            "max_samples_per_person": cfg.max_samples_per_person,
+        }
 
     def recognize(
         self, img: np.ndarray, mode: str | None = None, source: str = "api", log_events: bool | None = None
@@ -225,13 +240,18 @@ class FaceService:
         }
 
     # ------------------------------------------------------------------ enrollment
-    def enroll(self, person_id: str, images: list[tuple[str, np.ndarray]]) -> list[EnrollOutcome]:
+    def enroll(
+        self, person_id: str, images: list[tuple[str, np.ndarray]], dry_run: bool = False
+    ) -> list[EnrollOutcome]:
+        """Apply every enrollment gate and store accepted samples. With ``dry_run`` nothing is stored: the outcomes say
+        what *would* be accepted (guided capture uses this to retake an angle before the person walks away)."""
         cfg = self.settings.enrollment
         if self.store.get_person(person_id) is None:
             raise KeyError(person_id)
         outcomes: list[EnrollOutcome] = []
+        would_add = 0
         for filename, img in images:
-            if self.store.count_samples(person_id) >= cfg.max_samples_per_person:
+            if self.store.count_samples(person_id) + would_add >= cfg.max_samples_per_person:
                 outcomes.append(
                     EnrollOutcome(
                         filename,
@@ -264,22 +284,72 @@ class FaceService:
                 outcomes.append(oc)
                 continue
             # Duplicate check: does this face look like a *different* enrolled person?
-            res = self.matcher.identify(face.embeddings, "fusion" if len(face.embeddings) > 1 else None)
-            if res.person_id and res.person_id != person_id and res.score >= cfg.duplicate_threshold:
-                other = self.store.get_person(res.person_id)
+            dup = self._find_duplicate(face, person_id)
+            if dup:
+                emp = f", employee ID {dup['employee_id']}" if dup["employee_id"] else ""
                 oc.reason = (
-                    f"Looks like already-enrolled {other['name'] if other else 'person'} "
-                    f"(similarity {res.score:.2f}); check the photo belongs to this person"
+                    f"Already enrolled as {dup['name']}{emp} (similarity {dup['score']:.2f}); "
+                    "check the photo belongs to this person"
                 )
+                oc.duplicate_of = dup
+                outcomes.append(oc)
+                continue
+            if dry_run:
+                oc.accepted = True
+                would_add += 1
                 outcomes.append(oc)
                 continue
             thumb = encode_jpeg(face.crop, 92) if cfg.store_thumbnails and face.crop is not None else None
             oc.sample_id = self.store.add_sample(
-                person_id, face.score, face.sharpness, face.min_side, face.embeddings, thumb
+                person_id, face.score, face.sharpness, face.min_side, face.embeddings, thumb, head_pose(face.kps)
             )
             oc.accepted = True
             outcomes.append(oc)
         return outcomes
+
+    def _find_duplicate(self, face: Face, person_id: str | None) -> dict[str, Any] | None:
+        """The *other* enrolled person this face matches at ≥ ``duplicate_threshold`` (fusion when available)."""
+        res = self.matcher.identify(face.embeddings, "fusion" if len(face.embeddings) > 1 else None)
+        if not res.person_id or res.person_id == person_id or res.score < self.settings.enrollment.duplicate_threshold:
+            return None
+        other = self.store.get_person(res.person_id)
+        if other is None:
+            return None
+        keys = ("id", "name", "employee_id", "department", "cover_sample_id")
+        return {k: other.get(k) for k in keys} | {"score": round(float(res.score), 3)}
+
+    def check_duplicate(self, img: np.ndarray, person_id: str | None = None) -> dict[str, Any]:
+        """Is the largest face in ``img`` already enrolled as someone other than ``person_id``? Used by guided
+        capture right after the first photo, so HR learns about a duplicate before taking the other poses."""
+        faces = self.pipeline.analyze(img, max_faces=1)
+        if not faces:
+            return {"face_found": False, "duplicate_of": None}
+        return {"face_found": True, "duplicate_of": self._find_duplicate(faces[0], person_id)}
+
+    def backfill_poses(self) -> int:
+        """Give samples enrolled before pose was stored a yaw/pitch, so the profile photo can be the frontal one.
+
+        The stored 112 px crop is a similarity warp of the original, and yaw/pitch are ratios of landmark positions,
+        which such a warp preserves — so re-detecting landmarks on the crop recovers the capture pose.
+        """
+        import cv2
+
+        if self.pipeline.detector is None:
+            return 0
+        done = 0
+        for sid, thumb in self.store.iter_unposed_thumbs():
+            crop = cv2.imdecode(np.frombuffer(thumb, np.uint8), cv2.IMREAD_COLOR)
+            if crop is None:
+                continue
+            canvas = np.full((480, 480, 3), int(crop.mean()), np.uint8)  # detector needs context around the face
+            canvas[110:370, 110:370] = cv2.resize(crop, (260, 260))
+            faces = self.pipeline.detect(canvas)
+            if faces:
+                self.store.set_pose(sid, *head_pose(faces[0].kps))
+                done += 1
+        if done:
+            log.info("Backfilled head pose for %d samples", done)
+        return done
 
     def reembed(self) -> dict[str, int]:
         """Recompute every stored sample's embeddings from its thumbnail (after adding/upgrading a model)."""

@@ -45,3 +45,47 @@ def sharpness(crop_bgr: np.ndarray) -> float:
     """Variance of the Laplacian: a cheap blur score used to reject poor enrollment photos."""
     gray = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY)
     return float(cv2.Laplacian(gray, cv2.CV_64F).var())
+
+
+def face_sharpness(img_bgr: np.ndarray, kps: np.ndarray) -> float:
+    """Blur score of the *face itself*: Laplacian variance of the inner face (brows → chin, cheek to cheek) on a
+    224 px aligned crop.
+
+    Why not ``sharpness``: on the 112 px crop the corners hold background — ceiling lights, hair against a bright
+    wall — whose hard edges keep the score high even when the face is motion-blurred (measured: blurred faces
+    scored 880–905, sharp ones 470–800). Restricting to the inner face at 2× resolution ranks them correctly
+    (blurred ≈ 200–230, sharp ≈ 430–690). Used by guided capture to pick the clearest frame.
+    """
+    gray = cv2.cvtColor(norm_crop(img_bgr, kps, 224), cv2.COLOR_BGR2GRAY)
+    return float(cv2.Laplacian(gray[80:200, 56:168], cv2.CV_64F).var())
+
+
+def _pose_ratios(kps: np.ndarray) -> tuple[float, float]:
+    k = kps.astype(np.float64)
+    left_eye, right_eye, nose = k[0], k[1], k[2]
+    eye_mid, mouth_mid = (left_eye + right_eye) / 2, (k[3] + k[4]) / 2
+    axis, down = right_eye - left_eye, mouth_mid - eye_mid
+    a2, d2 = float(axis @ axis), float(down @ down)
+    t = float((nose - left_eye) @ axis) / a2 if a2 > 1e-6 else 0.5
+    s = float((nose - eye_mid) @ down) / d2 if d2 > 1e-6 else 0.5
+    return t, s
+
+
+_TEMPLATE_T, _TEMPLATE_S = _pose_ratios(ARCFACE_TEMPLATE)
+
+
+def head_pose(kps: np.ndarray) -> tuple[float, float]:
+    """Rough (yaw, pitch) from the 5 landmarks — used only to guide enrollment capture, never for matching.
+
+    Why landmarks and not a pose model: SCRFD already returns them, so pose costs nothing extra per frame.
+
+    * ``yaw`` — where the nose sits between the eyes, scaled to about [-1, 1] (≈ sin of the yaw angle).
+      Positive = nose toward image right = the person turned to *their* left.
+    * ``pitch`` — where the nose sits between the eye line and mouth line, relative to the alignment template.
+      Negative = chin up, positive = chin down. It depends on face shape and camera height, so callers should
+      compare it with the same person's frontal value rather than with zero.
+    """
+    t, s = _pose_ratios(kps)
+    yaw = float(np.clip((t - _TEMPLATE_T) * 2, -1, 1))
+    pitch = float(np.clip(s - _TEMPLATE_S, -1, 1))
+    return yaw, pitch

@@ -104,21 +104,29 @@ class SCRFDDetector:
             self._anchor_cache[key] = centers
         return self._anchor_cache[key]
 
-    def _letterbox(self, img: np.ndarray) -> tuple[np.ndarray, float]:
+    def _letterbox(self, img: np.ndarray, max_side: int | None = None) -> tuple[np.ndarray, float]:
+        """Fit the image inside ``input_size`` (optionally shrunk to ``max_side``) and pad only up to the next
+        multiple of the largest stride, not to the full square: a 16:9 frame becomes 640×384 instead of 640×640,
+        ~35% less compute with identical scale (the model has dynamic H/W)."""
         in_w, in_h = self.input_size
+        if max_side and max_side < max(in_w, in_h):
+            f = max_side / max(in_w, in_h)
+            in_w, in_h = max(32, int(in_w * f)), max(32, int(in_h * f))
         im_ratio = img.shape[0] / img.shape[1]
         if im_ratio > in_h / in_w:
-            new_h, new_w = in_h, int(in_h / im_ratio)
+            new_h, new_w = in_h, max(1, int(in_h / im_ratio))
         else:
-            new_w, new_h = in_w, int(in_w * im_ratio)
+            new_w, new_h = in_w, max(1, int(in_w * im_ratio))
         scale = new_h / img.shape[0]
-        canvas = np.zeros((in_h, in_w, 3), dtype=np.uint8)
+        m = self.strides[-1]
+        canvas = np.zeros((-(-new_h // m) * m, -(-new_w // m) * m, 3), dtype=np.uint8)
         canvas[:new_h, :new_w] = cv2.resize(img, (new_w, new_h))
         return canvas, scale
 
-    def detect(self, img_bgr: np.ndarray) -> list[Face]:
-        canvas, scale = self._letterbox(img_bgr)
-        blob = cv2.dnn.blobFromImage(canvas, 1.0 / self.input_std, self.input_size, (self.input_mean,) * 3, swapRB=True)
+    def detect(self, img_bgr: np.ndarray, max_side: int | None = None) -> list[Face]:
+        canvas, scale = self._letterbox(img_bgr, max_side)
+        size = (canvas.shape[1], canvas.shape[0])
+        blob = cv2.dnn.blobFromImage(canvas, 1.0 / self.input_std, size, (self.input_mean,) * 3, swapRB=True)
         outs = self.session.run(self.output_names, {self.input_name: blob})
         in_h, in_w = blob.shape[2:]
 

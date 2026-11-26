@@ -39,8 +39,12 @@ export const api = {
   updatePerson: (id, body) => request(`/people/${id}`, { method: 'PATCH', json: body }),
   deletePerson: (id) => request(`/people/${id}`, { method: 'DELETE' }),
   enroll: (id, files) => request(`/people/${id}/samples`, { method: 'POST', form: fd(files.map((f) => ['images', f, f.name])) }),
+  checkSamples: (id, files) => request(`/people/${id}/samples/check`, { method: 'POST', form: fd(files.map((f) => ['images', f, f.name])) }),
   deleteSample: (pid, sid) => request(`/people/${pid}/samples/${sid}`, { method: 'DELETE' }),
   sampleThumb: (sid) => `${BASE}/samples/${sid}/thumb`,
+  enrollmentGuide: () => request('/enrollment/guide'),
+  duplicateCheck: (pid, blob) => request(`/people/${pid}/duplicate-check`, { method: 'POST', form: fd([['image', blob, 'check.jpg']]) }),
+  detect: (blob, signal, size) => request('/detect', { method: 'POST', signal, form: fd([['image', blob, 'frame.jpg'], ['size', size]]) }),
 
   recognize: (blob, { mode, source = 'upload', log } = {}, signal) =>
     request('/recognize', { method: 'POST', signal, form: fd([['image', blob, 'frame.jpg'], ['mode', mode], ['source', source], ['log_events', log === undefined ? null : String(log)]]) }),
