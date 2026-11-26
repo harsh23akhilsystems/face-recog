@@ -1,0 +1,64 @@
+# FaceGate configuration. Every tunable lives here; code reads it through facegate.config.
+# Override the path with FG_CONFIG=/path/to/config.yaml and the project root with FG_ROOT.
+
+app:
+  name: FaceGate
+  organisation: "Your Company"        # shown in the console header
+  host: 0.0.0.0
+  port: 8100
+
+paths:
+  models_dir: models                  # ONNX weights (see src/facegate/vision/SPEC.md)
+  data_dir: data                      # SQLite gallery + runtime settings
+  database: data/facegate.db
+  runtime_settings: data/settings.json
+
+runtime:
+  # ONNX Runtime providers in priority order; unavailable ones are skipped.
+  providers: [CUDAExecutionProvider, CPUExecutionProvider]
+  intra_op_threads: 0                 # 0 = let ONNX Runtime decide
+
+detector:
+  name: scrfd
+  file: det_10g.onnx                  # SCRFD-10GF with 5-point landmarks (InsightFace buffalo_l)
+  input_size: [640, 640]
+  score_threshold: 0.5
+  nms_threshold: 0.4
+  max_faces: 20
+
+recognizers:
+  arcface:
+    enabled: true
+    file: w600k_r50.onnx              # ArcFace ResNet-50, WebFace600K (InsightFace buffalo_l)
+    channel_order: auto               # auto | rgb | bgr  (auto: inspect the graph like InsightFace does)
+    threshold: 0.30                   # cosine; tune with `make evaluate` on your own staff photos
+  adaface:
+    enabled: true
+    file: adaface_ir101_webface12m.onnx  # export with scripts/export_adaface_onnx.py
+    channel_order: bgr                # AdaFace is trained on BGR, normalised to [-1, 1]
+    threshold: 0.30
+
+matching:
+  # arcface | adaface | fusion (mean of both cosines) | strict (both models must agree)
+  mode: fusion
+  fusion_threshold: 0.30
+  margin: 0.05                        # best match must beat the runner-up by this much, else "uncertain"
+  aggregate: max                      # max | mean — how a person's several templates are scored
+
+enrollment:
+  min_face_px: 80                     # shorter side of the detected box
+  min_det_score: 0.70
+  min_sharpness: 40.0                 # variance of Laplacian on the aligned crop
+  max_samples_per_person: 20
+  duplicate_threshold: 0.55           # warn if a new sample looks like someone else at this cosine
+  store_thumbnails: true              # 112x112 aligned JPEG per sample, used only for the console
+
+events:
+  log_recognitions: true
+  cooldown_seconds: 60                # do not log the same person again within this window
+  retention_days: 90                  # events older than this are purged on startup
+  log_unknown: true
+
+api:
+  max_upload_mb: 8
+  cors_origins: []                    # same-origin by default; add origins only if you host the UI elsewhere

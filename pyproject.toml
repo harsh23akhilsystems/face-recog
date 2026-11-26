@@ -1,0 +1,51 @@
+[project]
+name = "facegate"
+version = "1.0.0"
+description = "Workplace face recognition: SCRFD detection + ArcFace / AdaFace recognition, served by FastAPI with a no-build web console."
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "numpy>=1.26",
+    "opencv-python-headless>=4.9",
+    "onnxruntime>=1.18",
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.29",
+    "python-multipart>=0.0.9",
+    "pydantic>=2.6",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.4"]
+# Only needed to convert an AdaFace PyTorch checkpoint (.ckpt) to ONNX.
+export = ["torch>=2.2", "onnx>=1.16"]
+
+[project.scripts]
+facegate = "facegate.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/facegate"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+ignore = ["B008"]  # FastAPI File()/Form()/Depends() defaults are idiomatic
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

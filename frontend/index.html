@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FaceGate</title>
+  <meta name="description" content="FaceGate — face detection and recognition console" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234f46e5' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2'/%3E%3Ccircle cx='12' cy='11' r='3'/%3E%3Cpath d='M7 18a5 5 0 0 1 10 0'/%3E%3C/svg%3E" />
+  <script>
+    // Apply the saved theme before first paint to avoid a flash.
+    try { const t = localStorage.getItem('fg-theme'); if (t) document.documentElement.dataset.theme = t; } catch {}
+  </script>
+  <link rel="stylesheet" href="/assets/css/styles.css" />
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true" data-icon="scan"></span>
+        <div>
+          <div class="brand-name" id="brand-name">FaceGate</div>
+          <div class="brand-org" id="brand-org">Face recognition</div>
+        </div>
+      </div>
+      <nav class="nav" id="nav" aria-label="Main">
+        <a href="#/overview" data-route="overview"><span data-icon="grid"></span>Overview</a>
+        <a href="#/live" data-route="live"><span data-icon="camera"></span>Live recognition</a>
+        <a href="#/people" data-route="people"><span data-icon="users"></span>People</a>
+        <a href="#/verify" data-route="verify"><span data-icon="compare"></span>Verify 1:1</a>
+        <a href="#/activity" data-route="activity"><span data-icon="list"></span>Activity log</a>
+        <a href="#/settings" data-route="settings"><span data-icon="sliders"></span>Settings</a>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="system-status" id="system-status" role="status">
+          <span class="dot"></span><span class="label">Checking…</span>
+        </div>
+        <button class="btn btn-ghost btn-sm theme-toggle" id="theme-toggle" type="button" aria-label="Toggle colour theme">
+          <span data-icon="moon"></span><span class="label">Dark mode</span>
+        </button>
+      </div>
+    </aside>
+
+    <div class="main">
+      <header class="topbar">
+        <button class="btn btn-ghost btn-icon menu-btn" id="menu-btn" type="button" aria-label="Open menu"><span data-icon="menu"></span></button>
+        <div>
+          <h1 id="page-title">Overview</h1>
+          <p id="page-subtitle" class="muted"></p>
+        </div>
+        <div class="topbar-actions" id="topbar-actions"></div>
+      </header>
+      <main id="view" class="view" tabindex="-1"></main>
+    </div>
+  </div>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <div id="modal-root"></div>
+  <script type="module" src="/assets/js/app.js"></script>
+</body>
+</html>

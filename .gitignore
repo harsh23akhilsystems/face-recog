@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+# Model weights are large and carry their own licences — never commit them.
+models/*
+!models/README.md
+# Biometric data: the gallery DB, runtime settings and evaluation sets stay off git.
+data/*
+!data/.gitkeep
+reports/
