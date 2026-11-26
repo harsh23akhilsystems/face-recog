@@ -1,0 +1,28 @@
+{
+  // Ctrl+Shift+B runs the default build task below: FaceGate with auto-reload at http://localhost:8100
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "FaceGate: run server",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": ["-m", "uvicorn", "facegate.api.main:app", "--host", "0.0.0.0", "--port", "8100", "--reload", "--reload-dir", "src"],
+      "options": {
+        "cwd": "${workspaceFolder}",
+        // Works even if the venv's editable install points at an old copy of the project.
+        "env": { "PYTHONPATH": "${workspaceFolder}/src" }
+      },
+      "group": { "kind": "build", "isDefault": true },
+      "isBackground": true,
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "problemMatcher": {
+        "owner": "uvicorn",
+        "pattern": { "regexp": "^__never_matches__$" },
+        "background": {
+          "activeBegins": "Will watch for changes|Started reloader process",
+          "endsPattern": "Application startup complete"
+        }
+      }
+    }
+  ]
+}
