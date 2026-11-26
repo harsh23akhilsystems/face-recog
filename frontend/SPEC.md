@@ -63,10 +63,12 @@ update this spec.
 - **Password step**: show/hide toggle, inline error with the server's message (`role=alert`), spinner while signing in.
 - **Face step** (button shown only when `/auth/face/status.available`; explains if no account is linked yet):
   mirrored camera in a 4:3 stage with an oval guide, scanning line + pulsing ring while the camera is live, face
-  box (green = good, amber = fix), hold-still meter, and a `role=status` line with the server's advice.
-  Loop: one request in flight, every 600 ms → `/auth/quality`; 2 good frames in a row → the **same** frame to
-  `/auth/face`. 401 → retry up to 3 times with a pause; 422 → advice, not counted; 429 → stop, no retry button.
-  Leaving the step or the page releases the camera.
+  box (green = good, amber = fix), and a `role=status` line with the server's advice.
+  Loop (built for speed): frames (≤ 640 px, JPEG 0.85) go **straight to `/auth/face`**, one request in flight, no
+  fixed tick and no "hold still" frames — a well-framed user is signed in on the first frame. 422 → draw the
+  returned face box + advice, next frame after 120 ms; 401 → retry up to 3 times with a 1 s pause; 429 → stop, no
+  retry button. Success shows the tick for 300 ms, then opens the console. Leaving the step or the page releases
+  the camera, and responses from a stopped loop are ignored.
 - Branding: Augastam logo and hero copy from the original application, nothing added to the card header. No web fonts are fetched (intranet); the font stack falls back to system fonts.
 - Theme: same `fg-theme` key as the console, applied before first paint. `prefers-reduced-motion` stops every
   animation and the parallax.

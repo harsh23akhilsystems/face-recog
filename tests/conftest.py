@@ -38,7 +38,7 @@ def face_image(identity: int, variant: int = 0, faces: int = 1, size: int = 200)
 
 
 class FakeDetector:
-    def detect(self, img: np.ndarray) -> list[Face]:
+    def detect(self, img: np.ndarray, input_size=None) -> list[Face]:
         identity, _, n = (int(v) for v in img[0, 0])
         if identity == 0:
             return []
@@ -68,8 +68,10 @@ class FakePipeline(FacePipeline):
         super().__init__(FakeDetector(), recs, status)
 
     def analyze(self, img, max_faces=None):
+        return self.embed(img, self.detector.detect(img)[:max_faces])
+
+    def embed(self, img, faces):
         identity, variant, _ = (int(v) for v in img[0, 0])
-        faces = self.detector.detect(img)[:max_faces]
         rng = np.random.default_rng(identity * 7919 + variant)
         for i, f in enumerate(faces):
             # second face in a multi-face image is a *different* identity (identity + 100)

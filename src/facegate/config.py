@@ -118,6 +118,7 @@ class AuthCfg(BaseModel):
     lock_window_minutes: int = 15  # ... within this window lock further attempts
     face_login: bool = True
     face_mode: MatchMode = "strict"  # matching mode for sign-in; strict = every loaded model must agree
+    detect_size: tuple[int, int] = (640, 640)  # SCRFD input for sign-in frames; (320, 320) is ~4x faster
     quality: QualityCfg = Field(default_factory=QualityCfg)
     liveness: LivenessCfg = Field(default_factory=LivenessCfg)
 

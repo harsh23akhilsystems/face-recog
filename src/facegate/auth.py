@@ -74,10 +74,11 @@ CREATE INDEX IF NOT EXISTS ix_login_events_ts ON login_events(ts);
 class AuthError(Exception):
     """A sign-in failure with the HTTP status and the message to show the user."""
 
-    def __init__(self, status: int, message: str) -> None:
+    def __init__(self, status: int, message: str, quality: dict[str, Any] | None = None) -> None:
         super().__init__(message)
         self.status = status
         self.message = message
+        self.quality = quality  # framing feedback for the login camera on a 422
 
 
 def _now() -> datetime:
@@ -362,7 +363,7 @@ class AuthService:
     def quality(self, img: np.ndarray) -> dict[str, Any]:
         if self.face.pipeline.detector is None:
             raise AuthError(503, "Face sign-in is not available: the face detector is not loaded.")
-        return quality.analyze(img, self.face.pipeline.detect(img), self.cfg.quality)
+        return quality.analyze(img, self.face.pipeline.detect(img, self.cfg.detect_size), self.cfg.quality)
 
     def face_login(self, img: np.ndarray, client: str | None) -> tuple[User, float]:
         pipeline = self.face.pipeline
@@ -378,12 +379,14 @@ class AuthService:
                 " minutes.",
             )
 
-        faces = pipeline.analyze(img)
+        # Detect + quality first and recognise only frames that pass: the login camera sends frames continuously,
+        # so a badly framed frame costs one detection (no ArcFace) and returns the advice + face box at once.
+        faces = pipeline.detect(img, self.cfg.detect_size)
         q = quality.analyze(img, faces, self.cfg.quality)
-        if not q["ok"]:  # framing problems are guidance, not failed attempts
-            self.log("face", "rejected", reason=", ".join(q["issues"]), client=client)
-            raise AuthError(422, q["advice"][0])
+        if not q["ok"]:  # framing problems are guidance, not failed attempts (and not logged: one per frame)
+            raise AuthError(422, q["advice"][0], quality=q)
         face = next(f for f in faces if f.score >= self.cfg.quality.min_det_score)
+        pipeline.embed(img, [face])
 
         lv = pipeline.check_liveness(img, face.bbox) if self.cfg.liveness.mode != "off" else None
         lv_note = f"liveness {lv['score']}" if lv else "liveness unavailable"

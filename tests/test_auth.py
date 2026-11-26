@@ -142,11 +142,12 @@ def test_face_login_rejections(anon):
     pid = anon.app.state.service.store.create_person("No Account")["id"]
     anon.app.state.service.enroll(pid, [("a.png", face_image(3, 1))])
     assert anon.post("/auth/face", files=image(3, 2)).status_code == 401
-    # framing problem → guidance (422), not a counted failure
+    # framing problem → guidance (422) with the face box for the overlay; neither counted nor logged
     r = anon.post("/auth/face", files=image(1, 1, faces=2))
     assert r.status_code == 422 and "More than one face" in r.json()["detail"]
+    assert r.json()["quality"]["issues"][0] == "multiple_faces"
     outcomes = [e["outcome"] for e in anon.app.state.auth.events() if e["method"] == "face"]
-    assert outcomes.count("failed") == 2 and outcomes.count("rejected") == 1
+    assert outcomes == ["failed", "failed"]
     assert anon.get("/api/v1/people").status_code == 401
 
 

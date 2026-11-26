@@ -74,8 +74,8 @@ curl -s -F image=@door.jpg -F mode=strict -F source=door-1 localhost:8100/api/v1
 | Method | Path | Access | Body | Notes |
 |---|---|---|---|---|
 | POST | `/auth/login` | public | `{username, password}` | sets the session cookie → `{user, method: "password"}` |
-| POST | `/auth/face` | public | multipart `image` | quality → liveness → match in `auth.face_mode` → linked active user → `{user, method: "face", score}` |
-| POST | `/auth/quality` | public | multipart `image` | `{ok, issues[], advice[], checks[], face:{box:[x,y,w,h] relative, score}, faces_found, image_size}`; nothing stored |
+| POST | `/auth/face` | public | multipart `image` | one camera frame: detect → quality (422 `{detail, quality}` with the face box; no recognition run) → embed → liveness → match in `auth.face_mode` → linked active user → `{user, method: "face", score}` |
+| POST | `/auth/quality` | public | multipart `image` | `{ok, issues[], advice[], checks[], face:{box:[x,y,w,h] relative, score}, faces_found, image_size}`; nothing stored (the login page now gets this from `/auth/face`'s 422) |
 | GET | `/auth/face/status` | public | | `{available, any_enrolled, liveness}` — no user data |
 | POST | `/auth/logout` | any | | ends the session, clears the cookie |
 | GET | `/auth/me` | session | | `{user, method, face}` |
@@ -86,4 +86,5 @@ curl -s -F image=@door.jpg -F mode=strict -F source=door-1 localhost:8100/api/v1
 
 `user` = `{id, username, display_name, role, person_id, face_login, created_at}` (`GET /auth/users` adds `person_name`).
 The People page uses these routes to create a person's login at registration time. "admin" = role `admin` **and** a
-password session. Face-sign-in framing failures (422) are logged as `rejected` and do not count towards lockout.
+password session. Face-sign-in framing failures (422) are neither logged nor counted towards lockout (the camera
+sends frames continuously).

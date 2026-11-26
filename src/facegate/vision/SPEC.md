@@ -8,7 +8,7 @@ Turns an image into faces with embeddings. Only this folder touches ONNX Runtime
 | `detector.py` | `SCRFDDetector` — letterbox, run SCRFD, decode anchors, NMS; helpers `distance2bbox`, `distance2kps`, `nms` |
 | `align.py` | `ARCFACE_TEMPLATE`, `estimate_norm`, `norm_crop` (112×112 warp), `sharpness` |
 | `recognizer.py` | `OnnxRecognizer` base, `ArcFaceRecognizer`, `AdaFaceRecognizer`, `RECOGNIZER_TYPES`, `l2_normalize` |
-| `pipeline.py` | `FacePipeline` — loads all models (incl. optional liveness, role `liveness` in `ModelStatus`), `analyze()` = detect → align → embed, `check_liveness()`; `decode_image`, `encode_jpeg` |
+| `pipeline.py` | `FacePipeline` — loads all models (incl. optional liveness, role `liveness` in `ModelStatus`), `analyze()` = detect → align → embed, `detect(img, input_size?)`, `embed(img, faces)`, `check_liveness()`, `warmup()` (one run per model at startup so the first request is not slow); `decode_image`, `encode_jpeg` |
 | `liveness.py` | `MiniFASLiveness` — optional passive anti-spoof for face sign-in: 1.5× square crop, 128 px, RGB/255, score = real − spoof logit |
 | `onnx_utils.py` | `create_session`, `available_providers` (CUDA → CPU) |
 | `types.py` | `Face` dataclass (bbox, score, kps, embeddings, crop, sharpness) |

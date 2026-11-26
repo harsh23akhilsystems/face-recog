@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 
 
 class Detector(Protocol):
-    def detect(self, img_bgr: np.ndarray) -> list[Face]: ...
+    def detect(self, img_bgr: np.ndarray, input_size: tuple[int, int] | None = None) -> list[Face]: ...
 
 
 class Recognizer(Protocol):
@@ -118,7 +118,24 @@ class FacePipeline:
             except Exception as exc:  # noqa: BLE001 - optional model: report, never crash
                 log.warning("Liveness model unavailable (face sign-in runs without it): %s", exc)
                 status.append(ModelStatus("minifas", "liveness", lv_cfg.file, False, True, error=str(exc)))
-        return cls(detector, recognizers, status, liveness)
+        pipeline = cls(detector, recognizers, status, liveness)
+        pipeline.warmup()
+        return pipeline
+
+    def warmup(self) -> None:
+        """Run each model once at startup: ONNX Runtime's first call is several times slower than later ones,
+        and that cost would otherwise land on the first person to sign in."""
+        img = np.zeros((480, 640, 3), np.uint8)
+        try:
+            if self.detector is not None:
+                self.detector.detect(img)
+            crop = np.zeros((112, 112, 3), np.uint8)
+            for rec in self.recognizers.values():
+                rec.embed([crop])
+            if self.liveness is not None:
+                self.liveness.score(img, np.array([200, 120, 440, 400], np.float32))
+        except Exception as exc:  # noqa: BLE001 - warm-up is an optimisation, never a startup failure
+            log.warning("Model warm-up failed: %s", exc)
 
     # ------------------------------------------------------------------ introspection
     def status(self) -> list[ModelStatus]:
@@ -133,11 +150,31 @@ class FacePipeline:
         return list(self.recognizers)
 
     # ------------------------------------------------------------------ inference
-    def detect(self, img_bgr: np.ndarray) -> list[Face]:
+    def detect(self, img_bgr: np.ndarray, input_size: tuple[int, int] | None = None) -> list[Face]:
         if self.detector is None:
             raise RuntimeError("Face detector is not loaded")
         with self._lock:
-            return self.detector.detect(img_bgr)
+            return self.detector.detect(img_bgr, input_size) if input_size else self.detector.detect(img_bgr)
+
+    def embed(self, img_bgr: np.ndarray, faces: list[Face]) -> list[Face]:
+        """Align and embed already-detected faces (lets callers skip recognition on frames they reject)."""
+        if not self.recognizers:
+            raise RuntimeError("No recognizer is loaded")
+        if not faces:
+            return faces
+        with self._lock:
+            self._embed_locked(img_bgr, faces)
+        return faces
+
+    def _embed_locked(self, img_bgr: np.ndarray, faces: list[Face]) -> None:
+        crops = [norm_crop(img_bgr, f.kps) for f in faces]
+        for face, crop in zip(faces, crops, strict=True):
+            face.crop = crop
+            face.sharpness = sharpness(crop)
+        for name, rec in self.recognizers.items():
+            embs = rec.embed(crops)
+            for face, emb in zip(faces, embs, strict=True):
+                face.embeddings[name] = emb
 
     def check_liveness(self, img_bgr: np.ndarray, bbox: np.ndarray) -> dict | None:
         """Anti-spoof score for one face box, or ``None`` when no liveness model is loaded."""
@@ -156,14 +193,7 @@ class FacePipeline:
                 faces = faces[:max_faces]
             if not faces:
                 return []
-            crops = [norm_crop(img_bgr, f.kps) for f in faces]
-            for face, crop in zip(faces, crops, strict=True):
-                face.crop = crop
-                face.sharpness = sharpness(crop)
-            for name, rec in self.recognizers.items():
-                embs = rec.embed(crops)
-                for face, emb in zip(faces, embs, strict=True):
-                    face.embeddings[name] = emb
+            self._embed_locked(img_bgr, faces)
         return faces
 
 

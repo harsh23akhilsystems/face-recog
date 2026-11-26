@@ -67,8 +67,8 @@ Tables `users`, `sessions`, `login_events` live in the gallery database and shar
 - **Sessions**: `secrets.token_urlsafe(32)` in the cookie; only its SHA-256 is stored; `auth.session_hours`;
   expired rows are purged on startup. Changing a password or removing a user ends their sessions.
 - **Face sign-in** (checked in order): `auth.face_login` on and models loaded (503) → not locked (429) →
-  `pipeline.analyze` + `quality.analyze` (422 with the first piece of advice; logged `rejected`, not counted) →
-  liveness, when a model is loaded and mode `enforce` (401) → `matcher.identify(…, auth.face_mode)` must be `match`
+  `pipeline.detect` at `auth.detect_size` + `quality.analyze` (422 with the first piece of advice and the quality
+  result; not logged, not counted) → `pipeline.embed` on that one face only → liveness, when a model is loaded and mode `enforce` (401) → `matcher.identify(…, auth.face_mode)` must be `match`
   → the matched person must be linked to an active user (`users.person_id`, unique) → session with method `face`.
   There are no separate face templates: the People page's samples are the templates, and deleting the person
   unlinks the account (`ON DELETE SET NULL`).

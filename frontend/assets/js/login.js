@@ -1,11 +1,13 @@
 // Sign-in page: hero carousel + parallax, password sign-in, and face sign-in with the scan animation.
-// Face flow: every ~600 ms a frame goes to /auth/quality (framing guidance, nothing stored). After 2 good frames in a
-// row the *same* frame is sent to /auth/face — re-grabbing after the round-trip let small head movements fail.
+// Face flow: frames go straight to /auth/face, one request in flight. The server checks framing first and answers
+// 422 + advice + face box for a bad frame (no recognition run), or signs in on a good one — so a well-framed user
+// is signed in on the first frame the camera delivers, with no fixed ticks or "hold still" frames.
 
 const $ = (id) => document.getElementById(id);
-const HOLD_FRAMES = 2;
 const MAX_ATTEMPTS = 3;
-const TICK_MS = 600;
+const FRAME_GAP_MS = 120; // pause between frames after a framing hint (keeps CPU use sane)
+const RETRY_PAUSE_MS = 1000; // pause after "face not recognised" before trying again
+const REDIRECT_MS = 300; // time the success tick is shown before opening the console
 
 // ---------------------------------------------------------------- hero carousel (4 s per product)
 const cards = [...document.querySelectorAll('.lg-pc')];
@@ -51,7 +53,7 @@ function success(user, how) {
   $('welcomeName').textContent = `Welcome, ${user.display_name}`;
   $('welcomeHow').textContent = how === 'face' ? 'Face recognised. Opening the console…' : 'Opening the console…';
   show('stepSuccess');
-  setTimeout(() => location.replace('/'), 900);
+  setTimeout(() => location.replace('/'), REDIRECT_MS);
 }
 
 async function postJSON(url, body) {
@@ -117,11 +119,11 @@ fetch('/auth/face/status').then((r) => r.json()).then((j) => {
 const cam = $('cam');
 const overlay = $('overlay');
 let stream = null;
-let loop = null;
-let busy = false;
-let goodStreak = 0;
+let running = false; // the frame loop is active
 let attempts = 0;
-let paused = false;
+let session = 0; // bumps on every start/stop so a late response from an old loop is ignored
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function status(kind, msg, spinner = false) {
   const el = $('faceStatus');
@@ -135,17 +137,13 @@ function scanning(on) {
   $('scanRing').hidden = !on;
 }
 
-function hold(n) {
-  $('holdMeter').style.width = `${Math.min(100, (n / HOLD_FRAMES) * 100)}%`;
-}
-
-function frame(maxSide = 1280) {
+function frame(maxSide = 640) {
   const s = Math.min(1, maxSide / Math.max(cam.videoWidth, cam.videoHeight));
-  const c = document.createElement('canvas');
+  const c = frame.canvas || (frame.canvas = document.createElement('canvas'));
   c.width = Math.round(cam.videoWidth * s);
   c.height = Math.round(cam.videoHeight * s);
   c.getContext('2d').drawImage(cam, 0, 0, c.width, c.height);
-  return new Promise((res) => c.toBlob(res, 'image/jpeg', 0.92));
+  return new Promise((res) => c.toBlob(res, 'image/jpeg', 0.85));
 }
 
 function drawBox(q) {
@@ -163,10 +161,7 @@ function drawBox(q) {
 
 async function startFace() {
   show('stepFace');
-  paused = false;
   attempts = 0;
-  goodStreak = 0;
-  hold(0);
   $('btnRetry').hidden = true;
   if (!faceInfo.any_enrolled) {
     status('warn', 'No account is linked to an enrolled face yet. Sign in with your password; an administrator can link your account to your face.');
@@ -180,10 +175,10 @@ async function startFace() {
   try {
     stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: 'user' }, audio: false });
     cam.srcObject = stream;
-    await new Promise((r) => { cam.onloadedmetadata = r; });
+    await cam.play();
     scanning(true);
-    status(null, 'Position your face inside the oval.');
-    loop = setInterval(tick, TICK_MS);
+    status(null, 'Look at the camera…');
+    run(++session);
   } catch (err) {
     const why = { NotAllowedError: 'camera access was blocked', NotFoundError: 'no camera found', NotReadableError: 'the camera is in use by another app' }[err.name] || err.message;
     status('invalid', `Camera unavailable: ${why}. Use your password instead.`);
@@ -192,54 +187,54 @@ async function startFace() {
 }
 
 function stopCamera() {
-  clearInterval(loop);
-  loop = null;
+  session++;
+  running = false;
   scanning(false);
-  hold(0);
   stream?.getTracks().forEach((t) => t.stop());
   stream = null;
 }
 
-async function tick() {
-  if (busy || paused || !cam.videoWidth) return;
-  busy = true;
-  try {
-    const img = await frame();
-    const { r, j: q } = await postImage('/auth/quality', img);
-    if (!r.ok) { status('invalid', detail(q, 'Face sign-in is unavailable.')); return; }
-    drawBox(q);
-    if (!q.ok) { goodStreak = 0; hold(0); status('warn', q.advice?.[0] || 'Adjust your position.'); return; }
-    hold(++goodStreak);
-    if (goodStreak < HOLD_FRAMES) { status('ok', 'Hold still…'); return; }
-    await attempt(img);
-  } catch {
-    status('invalid', 'Connection problem — retrying…');
-  } finally {
-    busy = false;
-  }
-}
-
-async function attempt(img) {
-  goodStreak = 0;
-  status(null, 'Recognising…', true);
-  const { r, j } = await postImage('/auth/face', img);
-  hold(0);
-  if (r.ok) return success(j.user, 'face');
-  if (r.status === 422) { status('warn', detail(j, 'Adjust your position.')); return; } // framing: not counted
-  if (r.status === 401 && ++attempts < MAX_ATTEMPTS) {
-    status('invalid', `${detail(j, 'Face not recognised.')} (${attempts}/${MAX_ATTEMPTS})`);
-    paused = true;
-    setTimeout(() => { paused = false; }, 1800);
+async function run(id) {
+  running = true;
+  while (running && id === session) {
+    if (!cam.videoWidth) { await sleep(50); continue; }
+    let r;
+    let j;
+    try {
+      const form = new FormData();
+      form.append('image', await frame(), 'frame.jpg');
+      r = await fetch('/auth/face', { method: 'POST', body: form });
+      j = await r.json().catch(() => ({}));
+    } catch {
+      if (id !== session) return;
+      status('invalid', 'Connection problem — retrying…');
+      await sleep(1000);
+      continue;
+    }
+    if (id !== session) return; // stopped or restarted while the request was in flight
+    if (r.ok) { drawBox({ ok: true }); success(j.user, 'face'); return; }
+    if (r.status === 422) { // framing: show the hint and box, try the next frame
+      drawBox(j.quality);
+      status('warn', detail(j, 'Adjust your position.'));
+      await sleep(FRAME_GAP_MS);
+      continue;
+    }
+    if (r.status === 401 && ++attempts < MAX_ATTEMPTS) {
+      drawBox(null);
+      status('invalid', `${detail(j, 'Face not recognised.')} (${attempts}/${MAX_ATTEMPTS})`);
+      await sleep(RETRY_PAUSE_MS);
+      if (id === session) status(null, 'Trying again — look at the camera…');
+      continue;
+    }
+    stopCamera();
+    drawBox(null);
+    status('invalid', r.status === 401 ? 'Face not recognised. Please sign in with your password.' : detail(j, 'Face sign-in failed.'));
+    $('btnRetry').hidden = r.status === 429;
     return;
   }
-  paused = true;
-  stopCamera();
-  drawBox(null);
-  status('invalid', r.status === 401 ? 'Face not recognised. Please sign in with your password.' : detail(j, 'Face sign-in failed.'));
-  $('btnRetry').hidden = r.status === 429;
 }
 
 $('btnFace').onclick = startFace;
 $('btnRetry').onclick = startFace;
-$('btnBack').onclick = () => { paused = true; stopCamera(); drawBox(null); show('stepPassword'); };
+$('btnBack').onclick = () => { stopCamera(); drawBox(null); show('stepPassword'); };
 addEventListener('pagehide', stopCamera);

@@ -7,6 +7,7 @@ needs them before anyone is signed in; everything else requires a session.
 from __future__ import annotations
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, Response, UploadFile
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from facegate.api.deps import AdminSession, Auth, Session, Svc, client_id, read_image, session_of
@@ -63,11 +64,14 @@ def login(body: LoginBody, request: Request, response: Response, auth: Auth) -> 
 
 
 @router.post("/face")
-def face_login(request: Request, response: Response, auth: Auth, svc: Svc, image: UploadFile = File(...)) -> dict:
+def face_login(request: Request, response: Response, auth: Auth, svc: Svc, image: UploadFile = File(...)):
+    """One camera frame. 200 = signed in; 422 = framing advice + ``quality`` (face box) to try the next frame."""
     img = read_image(svc, image)
     try:
         user, score = auth.face_login(img, client_id(request))
     except AuthError as exc:
+        if exc.quality is not None:
+            return JSONResponse({"detail": exc.message, "quality": exc.quality}, status_code=exc.status)
         raise _raise(exc) from exc
     return _sign_in(response, auth, user, "face") | {"score": round(score, 4)}
 

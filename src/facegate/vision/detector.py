@@ -104,8 +104,8 @@ class SCRFDDetector:
             self._anchor_cache[key] = centers
         return self._anchor_cache[key]
 
-    def _letterbox(self, img: np.ndarray) -> tuple[np.ndarray, float]:
-        in_w, in_h = self.input_size
+    def _letterbox(self, img: np.ndarray, input_size: tuple[int, int]) -> tuple[np.ndarray, float]:
+        in_w, in_h = input_size
         im_ratio = img.shape[0] / img.shape[1]
         if im_ratio > in_h / in_w:
             new_h, new_w = in_h, int(in_h / im_ratio)
@@ -116,9 +116,11 @@ class SCRFDDetector:
         canvas[:new_h, :new_w] = cv2.resize(img, (new_w, new_h))
         return canvas, scale
 
-    def detect(self, img_bgr: np.ndarray) -> list[Face]:
-        canvas, scale = self._letterbox(img_bgr)
-        blob = cv2.dnn.blobFromImage(canvas, 1.0 / self.input_std, self.input_size, (self.input_mean,) * 3, swapRB=True)
+    def detect(self, img_bgr: np.ndarray, input_size: tuple[int, int] | None = None) -> list[Face]:
+        """``input_size`` overrides the configured size for one call (det_10g has a dynamic input shape)."""
+        size = tuple(input_size) if input_size else self.input_size
+        canvas, scale = self._letterbox(img_bgr, size)
+        blob = cv2.dnn.blobFromImage(canvas, 1.0 / self.input_std, size, (self.input_mean,) * 3, swapRB=True)
         outs = self.session.run(self.output_names, {self.input_name: blob})
         in_h, in_w = blob.shape[2:]
 

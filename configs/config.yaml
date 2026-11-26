@@ -76,6 +76,7 @@ auth:
   lock_window_minutes: 15
   face_login: true                    # users linked to a gallery person can sign in with their face
   face_mode: strict                   # strict = every loaded recognizer must agree on the same person
+  detect_size: [640, 640]             # SCRFD input for sign-in frames (same as enrollment); [320, 320] ≈ 4x faster detection
   quality:                            # live-camera checks before a face sign-in attempt
     min_det_score: 0.60
     good_det_score: 0.75
