@@ -52,6 +52,46 @@ enrollment:
   max_samples_per_person: 20
   duplicate_threshold: 0.55           # warn if a new sample looks like someone else at this cosine
   store_thumbnails: true              # 112x112 aligned JPEG per sample, used only for the console
+  # Guided video scan (People → Add person): the camera opens in a circle, a voice says "look straight",
+  # "slowly turn left", "right", "chin up", "chin down", and the live video is analysed continuously. For every
+  # step below the sharpest, best-framed frame inside its pose range is kept; at the end those are enrolled.
+  # Nobody has to hold a pose. yaw ≈ sin(angle), + = person turned to THEIR left; pitch is relative to their
+  # frontal frame, − = chin up. Ranges are [min, max]; omit a key to not check it. Widen ranges if an angle is missed.
+  guided:
+    auto_start_for_new_person: true   # open guided capture right after "Add person → Continue"
+    auto_submit: true                 # enroll the best frames as soon as the scan ends
+    voice: true                       # speak the instructions (console has a mute button)
+    capture_max_side: 1280            # resolution of analysed / enrolled frames
+    detect_size: 384                  # detector input for the scan loop: ~3x faster than 640, fine for close faces
+    best_window_ms: 800               # after a direction's angles are found, keep looking this long for a sharper frame
+    max_motion: 0.06                  # frames where the head moved more than this per 100 ms (2-frame average) are
+                                      # skipped as motion-blurred. Still-head jitter is ~0.02–0.03; raise if "Hold still"
+                                      # never clears on a noisy camera, lower for stricter stillness
+    still_diff: 0.012                 # image stillness: face-thumbnail change per 100 ms at which a frame's score
+                                      # halves (>3x = never used). Still ≈ 0.009, slow drift ≈ 0.016, turning ≈ 0.08.
+                                      # Raise to 0.02 on a noisy/dark camera if "Hold still" never clears
+    remind_ms: 4000                   # direction not finished yet? repeat the (more specific) instruction this often.
+                                      # The scan never moves on by itself: video stays on until every angle has a photo
+    max_center_offset: 0.22           # face centre must be within this fraction of the frame from the middle
+    phase_prompts:                    # spoken + shown for each direction
+      center: "Look straight at the camera"
+      left: "Slowly turn your head to your left"
+      right: "Now slowly turn your head to your right"
+      up: "Look straight, and tilt your chin up"
+      down: "Now tilt your chin down"
+    guide_style: dot                  # dot | hold | faceid | avatar | points (default; the scan window has a picker)
+    animations:                       # Lottie JSON files under frontend/assets/ ("" = off); see assets/anim/README.md
+      intro: anim/face-scan.json      # "turn your head like this", shown once per browser session before the scan
+      success: anim/success.json      # plays when every angle is captured
+    intro_ms: 2500
+    steps:
+      - {key: front,        prompt: "Look straight at the camera",           hint: center, yaw: [-0.15, 0.15]}
+      - {key: left_slight,  prompt: "Turn slightly to your left",            hint: left,  yaw: [0.12, 0.30],   pitch: [-0.15, 0.15]}
+      - {key: left,         prompt: "Keep turning to your left",             hint: left,  yaw: [0.30, 0.85],   pitch: [-0.18, 0.18]}
+      - {key: right_slight, prompt: "Turn slightly to your right",           hint: right, yaw: [-0.30, -0.12], pitch: [-0.15, 0.15]}
+      - {key: right,        prompt: "Keep turning to your right",            hint: right, yaw: [-0.85, -0.30], pitch: [-0.18, 0.18]}
+      - {key: up,           prompt: "Look straight, then tilt your chin up", hint: up,    yaw: [-0.25, 0.25],  pitch: [-1.0, -0.05]}
+      - {key: down,         prompt: "Now tilt your chin down",               hint: down,  yaw: [-0.25, 0.25],  pitch: [0.05, 1.0]}
 
 events:
   log_recognitions: true

@@ -27,10 +27,26 @@ Checked per photo, in order; the first failure becomes the user-visible `reason`
 3. Face shorter side ≥ `min_face_px` (80).
 4. Detection score ≥ `min_det_score` (0.70).
 5. Sharpness ≥ `min_sharpness` (40).
-6. Not a duplicate: rejected if it matches a **different** person at ≥ `duplicate_threshold` (0.55).
+6. Not a duplicate: rejected if it matches a **different** person at ≥ `duplicate_threshold` (0.55). The reason names
+   them ("Already enrolled as X, employee ID Y") and the outcome carries `duplicate_of` for the console popup.
+   `check_duplicate(img, person_id)` runs the same check without enrolling (guided capture's first photo).
+   `enroll(..., dry_run=True)` applies all gates (photo limit counted across the batch) without storing anything.
 
 Accepted → stores the aligned crop (if `store_thumbnails`) and one embedding per loaded model.
 Raw uploaded photos are never stored.
+
+### Guided capture (`FaceService.enrollment_guide`, `enrollment.guided`)
+The console's guided capture calls `GET /enrollment/guide` for the pose `steps` plus the same gates as above
+(`min_face_px`, `min_det_score`, `min_sharpness`, `max_samples_per_person`), polls `POST /detect` (which returns
+`sharpness` and `pose {yaw, pitch}`) on the live video with a small detector input (`detect_size`) while a voice
+walks the person through each direction (`phase_prompts`). Every frame that is centred (`max_center_offset`) and
+passes the gates competes for each step whose yaw/pitch range it fits; the best frame per step is enrolled when the
+scan ends — only once every step has a frame (`best_window_ms` after a direction's steps are found; unfinished
+directions are re-announced every `remind_ms`, never skipped automatically).
+All photos then go through `enroll` unchanged — guided capture adds no server-side bypass.
+Each step: `key`, `prompt`, `hint` (center/left/right/up/down), `yaw` and `pitch` as `[min, max]` or `null`.
+`yaw` ≈ sin(angle), + = person turned to *their* left; `pitch` is relative to that person's frontal capture,
+− = chin up. Defaults: front, slight left, left, slight right, right, chin up, chin down (7 photos).
 
 ## Recognition & events (`FaceService.recognize`)
 - Uses `effective_mode` (falls back if a model is missing).

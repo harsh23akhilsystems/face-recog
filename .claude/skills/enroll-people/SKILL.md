@@ -10,7 +10,9 @@ description: Enroll staff into the FaceGate gallery — single person via consol
 (ideally ≥ 150 px); one person per photo; ideally captured with the deployment camera.
 
 ## Console
-People → Add person → drawer → Upload or Webcam. Each photo shows Added / reason.
+People → Add person → Continue opens **guided capture** (voice-guided video scan, best frame per angle auto-picked and saved; config
+`enrollment.guided`). Drawer → Guided capture / Upload / Webcam for more. Each photo shows Added / reason.
+If a pose never triggers on real faces, widen its `yaw`/`pitch` range in `configs/config.yaml`.
 
 ## Bulk
 ```bash

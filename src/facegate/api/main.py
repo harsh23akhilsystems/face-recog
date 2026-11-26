@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import threading
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
@@ -77,10 +78,15 @@ def reembed(svc: Svc) -> dict:
 
 # ---------------------------------------------------------------------- inference
 @router.post("/detect", tags=["inference"])
-def detect(svc: Svc, image: UploadFile = File(...)) -> dict:
+def detect(svc: Svc, image: UploadFile = File(...), size: int | None = Form(None, ge=96, le=1280)) -> dict:
     if svc.pipeline.detector is None:
         require_ready(svc)
-    return svc.detect(read_image(svc, image))
+    return svc.detect(read_image(svc, image), size)
+
+
+@router.get("/enrollment/guide", tags=["people"])
+def enrollment_guide(svc: Svc) -> dict:
+    return svc.enrollment_guide()
 
 
 @router.post("/recognize", tags=["inference"])
@@ -117,7 +123,13 @@ def create_person(body: PersonCreate, svc: Svc) -> dict:
     try:
         return svc.store.create_person(**body.model_dump())
     except sqlite3.IntegrityError as exc:
-        raise HTTPException(409, f"Employee ID {body.employee_id!r} is already registered") from exc
+        raise HTTPException(409, _employee_taken(svc, body.employee_id)) from exc
+
+
+def _employee_taken(svc: FaceService, employee_id: str | None) -> str:
+    owner = next((p for p in svc.store.list_people(query=employee_id) if p.get("employee_id") == employee_id), None)
+    who = f" to {owner['name']}" if owner else ""
+    return f"Employee ID {employee_id!r} is already registered{who}"
 
 
 def _person_or_404(svc: FaceService, pid: str) -> dict:
@@ -135,10 +147,13 @@ def get_person(pid: str, svc: Svc) -> dict:
 @router.patch("/people/{pid}", tags=["people"])
 def update_person(pid: str, body: PersonUpdate, svc: Svc) -> dict:
     _person_or_404(svc, pid)
+    sid = body.profile_sample_id
+    if sid and not any(s["id"] == sid for s in svc.store.list_samples(pid)):
+        raise HTTPException(422, "That photo does not belong to this person")
     try:
         return svc.store.update_person(pid, **body.model_dump(exclude_unset=True))  # type: ignore[return-value]
     except sqlite3.IntegrityError as exc:
-        raise HTTPException(409, f"Employee ID {body.employee_id!r} is already registered") from exc
+        raise HTTPException(409, _employee_taken(svc, body.employee_id)) from exc
 
 
 @router.delete("/people/{pid}", status_code=204, tags=["people"])
@@ -148,18 +163,39 @@ def delete_person(pid: str, svc: Svc) -> Response:
     return Response(status_code=204)
 
 
-@router.post("/people/{pid}/samples", tags=["people"])
-def enroll(pid: str, svc: Svc, images: list[UploadFile] = File(...)) -> dict:
+def _enroll_uploads(svc: FaceService, pid: str, images: list[UploadFile], dry_run: bool) -> dict:
     require_ready(svc)
     _person_or_404(svc, pid)
-    decoded, rejected = [], []
+    # Results stay in upload order (the console maps them back to its photos by index), undecodable files included.
+    slots: list[dict | None] = []
+    decoded = []
     for up in images:
         try:
             decoded.append((up.filename or "image", read_image(svc, up)))
+            slots.append(None)
         except HTTPException as exc:
-            rejected.append({"filename": up.filename, "accepted": False, "reason": exc.detail, "warnings": []})
-    outcomes = [asdict(o) for o in svc.enroll(pid, decoded)] + rejected
+            slots.append({"filename": up.filename, "accepted": False, "reason": exc.detail, "warnings": []})
+    done = iter(asdict(o) for o in svc.enroll(pid, decoded, dry_run=dry_run))
+    outcomes = [s if s is not None else next(done) for s in slots]
     return {"accepted": sum(o["accepted"] for o in outcomes), "results": outcomes, "person": svc.store.get_person(pid)}
+
+
+@router.post("/people/{pid}/samples", tags=["people"])
+def enroll(pid: str, svc: Svc, images: list[UploadFile] = File(...)) -> dict:
+    return _enroll_uploads(svc, pid, images, dry_run=False)
+
+
+@router.post("/people/{pid}/samples/check", tags=["people"])
+def check_samples(pid: str, svc: Svc, images: list[UploadFile] = File(...)) -> dict:
+    """Run every enrollment gate on the photos without storing anything (same response shape as enroll)."""
+    return _enroll_uploads(svc, pid, images, dry_run=True)
+
+
+@router.post("/people/{pid}/duplicate-check", tags=["people"])
+def duplicate_check(pid: str, svc: Svc, image: UploadFile = File(...)) -> dict:
+    require_ready(svc)
+    _person_or_404(svc, pid)
+    return svc.check_duplicate(read_image(svc, image), pid)
 
 
 @router.delete("/people/{pid}/samples/{sid}", status_code=204, tags=["people"])
@@ -198,6 +234,13 @@ def event_thumb(eid: int, svc: Svc) -> Response:
 
 
 # ---------------------------------------------------------------------- app factory
+def _safe_backfill(svc: FaceService) -> None:
+    try:
+        svc.backfill_poses()
+    except Exception:  # never let a maintenance task take the server down
+        log.exception("Pose backfill failed")
+
+
 def create_app(service: FaceService | None = None) -> FastAPI:
     settings = service.settings if service else get_settings()
 
@@ -205,6 +248,8 @@ def create_app(service: FaceService | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         if getattr(app.state, "service", None) is None:
             app.state.service = FaceService.from_settings(settings)
+            # One-off, in the background: older samples get a head pose so their profile photo can be frontal.
+            threading.Thread(target=_safe_backfill, args=(app.state.service,), daemon=True).start()
         app.state.auth = AuthService(app.state.service)
         created = app.state.auth.bootstrap_admin()
         if created:

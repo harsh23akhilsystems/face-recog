@@ -43,6 +43,10 @@ def test_enroll_rejects_no_face_and_duplicates(service):
     assert [r.accepted for r in res] == [False, False]
     assert "No face" in res[0].reason
     assert "Alice" in res[1].reason
+    assert res[1].duplicate_of["name"] == "Alice" and res[1].duplicate_of["score"] >= 0.55
+    assert service.check_duplicate(face_image(1, 5), bob["id"])["duplicate_of"]["name"] == "Alice"
+    assert service.check_duplicate(face_image(9, 1), bob["id"]) == {"face_found": True, "duplicate_of": None}
+    assert service.check_duplicate(face_image(0), bob["id"])["face_found"] is False
 
 
 def test_enroll_warns_on_multiple_faces_and_enforces_limit(service):
@@ -131,3 +135,23 @@ def test_roc_metrics_separable():
     r = roc_metrics(scores, same, target_far=1e-3)
     assert r["auc"] > 0.999 and r["eer"] < 0.01
     assert 0.1 < r["recommended"]["threshold"] < 0.6
+
+
+def test_profile_photo_is_most_frontal_unless_chosen(service):
+    p = service.store.create_person("Erin")
+    emb = {"arcface": np.ones(4, np.float32)}
+    up = service.store.add_sample(p["id"], 0.9, 900.0, 200, emb, None, (0.02, -0.15))  # sharpest, but chin up
+    front = service.store.add_sample(p["id"], 0.8, 400.0, 200, emb, None, (0.01, 0.03))
+    service.store.add_sample(p["id"], 0.9, 800.0, 200, emb, None, (0.45, 0.03))  # turned left
+    assert service.store.get_person(p["id"])["cover_sample_id"] == front
+    service.store.update_person(p["id"], profile_sample_id=up)
+    assert service.store.get_person(p["id"])["cover_sample_id"] == up
+    service.store.delete_sample(up)  # chosen photo deleted -> falls back to the frontal one
+    assert service.store.get_person(p["id"])["cover_sample_id"] == front
+
+
+def test_enroll_stores_pose(service):
+    p = service.store.create_person("Finn")
+    service.enroll(p["id"], [("a.png", face_image(5, 1))])
+    s = service.store.list_samples(p["id"])[0]
+    assert s["yaw"] is not None and abs(s["yaw"]) < 0.05

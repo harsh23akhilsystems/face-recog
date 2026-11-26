@@ -5,6 +5,7 @@
 
 import { api, canManageUsers } from '../api.js';
 import { Camera } from '../camera.js';
+import { guidedCapture } from '../guided.js';
 import {
   avatar, bindDropzone, confirmDialog, emptyState, esc, fmtTime, icon, loadingRow, openDrawer, openModal, toast,
 } from '../ui.js';
@@ -14,12 +15,19 @@ export const subtitle = 'Enrolled staff, their face samples and sign-in accounts
 
 let appState = {};
 let usersByPerson = new Map(); // person_id -> user (admins only)
+let unlinkedUsers = []; // logins not linked to any person (e.g. created with the CLI) — can be linked from a drawer
 const isAdmin = () => canManageUsers(appState.me);
 
 async function loadUsers() {
   usersByPerson = new Map();
+  unlinkedUsers = [];
   if (!isAdmin()) return;
-  try { for (const u of await api.users()) if (u.person_id) usersByPerson.set(u.person_id, u); } catch { /* not fatal */ }
+  try {
+    for (const u of await api.users()) {
+      if (u.person_id) usersByPerson.set(u.person_id, u);
+      else unlinkedUsers.push(u);
+    }
+  } catch { /* not fatal */ }
 }
 
 export function render(root, state, actions) {
@@ -130,13 +138,13 @@ function addPerson(onDone) {
         } catch (err) { toast(`${p.name} added, but the login was not created: ${err.message}`, 'warning'); }
       } else toast(`${p.name} added`, 'success');
       m.close();
-      await onDone(); openPerson(p.id, onDone);
+      await onDone(); openPerson(p.id, onDone, { guided: true });
     } catch (err) { toast(err.message, 'error'); }
   });
 }
 
 // ---------------------------------------------------------------- detail drawer
-async function openPerson(id, onChange) {
+async function openPerson(id, onChange, { guided = false } = {}) {
   let person;
   try { person = await api.person(id); } catch (e) { toast(e.message, 'error'); return; }
   let cam = null;
@@ -149,8 +157,10 @@ async function openPerson(id, onChange) {
     </div>
     <div class="drawer-body">
       <section class="card">
-        <div class="card-head"><h3>Add face photos</h3><span class="small muted">3–5 photos: front, slight left/right, with/without glasses</span></div>
+        <div class="card-head"><h3>Add face photos</h3><span class="small muted">Guided capture takes every angle automatically</span></div>
         <div class="card-body stack">
+          <div class="row"><button class="btn btn-primary" id="guided" type="button">${icon('scan')}Guided capture</button>
+            <span class="small muted">Camera opens in a circle and photographs the face from every angle, then saves.</span></div>
           <div class="segmented" role="group" aria-label="Photo source" id="src-seg">
             <button type="button" data-src="upload" aria-pressed="true">${icon('upload')} Upload</button>
             <button type="button" data-src="camera" aria-pressed="false">${icon('camera')} Webcam</button>
@@ -163,6 +173,7 @@ async function openPerson(id, onChange) {
           <div id="src-camera" class="hidden stack">
             <div class="stage mirror" style="aspect-ratio:4/3"><video id="d-video" playsinline muted></video>
               <div class="placeholder" id="d-ph"><div>${icon('camera')}<div class="small">Starting camera…</div></div></div></div>
+            <select class="select" id="d-cam" aria-label="Camera"><option value="">Default camera</option></select>
             <div class="row"><button class="btn btn-primary" id="snap" type="button">${icon('aperture')}Capture photo</button>
               <span class="small muted">Ask the person to look at the camera, then turn slightly between captures.</span></div>
           </div>
@@ -198,10 +209,16 @@ async function openPerson(id, onChange) {
     const s = person.samples || [];
     $('#s-count').textContent = `(${s.length})`;
     $('#samples').innerHTML = s.length
-      ? `<div class="samples-grid">${s.map((x) => `<div class="sample">
+      ? `<div class="samples-grid">${s.map((x) => {
+          const isProfile = x.id === person.cover_sample_id;
+          return `<div class="sample ${isProfile ? 'is-profile' : ''}">
           ${x.has_thumb ? `<img src="${api.sampleThumb(x.id)}" alt="Face sample" loading="lazy"/>` : `<div class="empty">${icon('image')}</div>`}
+          ${isProfile ? '<span class="badge success profile-badge">★ Profile</span>' : ''}
           <span class="q" title="Detection score · sharpness">${Math.round(x.det_score * 100)}% · ${Math.round(x.sharpness)}</span>
-          <button class="btn btn-sm btn-icon btn-danger" data-sid="${esc(x.id)}" aria-label="Delete sample">${icon('trash')}</button></div>`).join('')}</div>`
+          ${isProfile || !x.has_thumb ? '' : `<button class="btn btn-sm btn-icon set-profile" data-profile="${esc(x.id)}" title="Set as profile photo" aria-label="Set as profile photo">★</button>`}
+          <button class="btn btn-sm btn-icon btn-danger" data-sid="${esc(x.id)}" aria-label="Delete sample">${icon('trash')}</button></div>`;
+        }).join('')}</div>
+        <p class="small muted" style="margin-top:8px">${person.profile_sample_id ? 'Profile photo chosen manually.' : 'Profile photo is picked automatically (the most front-facing photo).'} Click ★ on a photo to use it instead.</p>`
       : emptyState('image', 'No face samples', 'This person cannot be recognised until at least one photo is added.');
   };
   const paintAccount = () => {
@@ -213,7 +230,11 @@ async function openPerson(id, onChange) {
       box.innerHTML = `
         <p class="small muted" style="margin:0">No login yet. Create one so ${esc(person.name)} can sign in with a password${hasPhotos ? ' or their face' : ', and with their face once photos are added'}.</p>
         <form class="stack" id="acc-create">${loginFields(person.employee_id || '')}
-          <div class="row"><button class="btn btn-primary" type="submit">${icon('key')}Create login</button></div></form>`;
+          <div class="row"><button class="btn btn-primary" type="submit">${icon('key')}Create login</button></div></form>
+        ${unlinkedUsers.length ? `<form class="row" id="acc-link" style="align-items:flex-end;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:12px">
+          <div class="field" style="flex:1;min-width:180px;margin:0"><label for="acc-user">…or link an existing login</label>
+            <select class="select" id="acc-user">${unlinkedUsers.map((u) => `<option value="${u.id}">${esc(u.username)} — ${esc(u.display_name)}</option>`).join('')}</select></div>
+          <button class="btn" type="submit">Link login</button></form>` : ''}`;
       return;
     }
     box.innerHTML = `
@@ -242,6 +263,12 @@ async function openPerson(id, onChange) {
           if (!login.username || login.password.length < 8) { toast('Enter a username and a password of at least 8 characters.', 'warning'); return; }
           const u = await api.createUser({ ...login, display_name: person.name, person_id: id });
           usersByPerson.set(id, u); toast(`Login “${u.username}” created`, 'success');
+        } else if (e.target.id === 'acc-link') {
+          const uid = Number(box.querySelector('#acc-user').value);
+          const u = await api.updateUser(uid, { person_id: id });
+          usersByPerson.set(id, u);
+          unlinkedUsers = unlinkedUsers.filter((x) => x.id !== uid);
+          toast(`Login “${u.username}” linked — ${person.name} can now sign in with their face`, 'success');
         } else if (e.target.id === 'acc-pass') {
           const pw = box.querySelector('#acc-new').value;
           if (pw.length < 8) { toast('Password must be at least 8 characters.', 'warning'); return; }
@@ -249,7 +276,10 @@ async function openPerson(id, onChange) {
           toast('Password changed; their open sessions were signed out', 'success');
         }
         paintAccount();
-      } catch (err) { toast(err.message, 'error'); }
+      } catch (err) {
+        toast(/already taken/.test(err.message) && unlinkedUsers.length
+          ? `${err.message}. If that login belongs to ${person.name}, use “Link login” below instead.` : err.message, 'error');
+      }
     });
     box.addEventListener('click', async (e) => {
       if (!e.target.closest('#acc-remove')) return;
@@ -261,6 +291,33 @@ async function openPerson(id, onChange) {
   const reload = async () => { person = await api.person(id); paintHeader(); paintSamples(); paintAccount(); };
   paintHeader(); paintSamples(); paintAccount(); accountEvents();
 
+  // A face that already belongs to someone else: say who (name + employee ID) and offer the obvious next steps.
+  const showDuplicate = (dup) => {
+    const isEmpty = !(person.samples || []).length;
+    const pm = openModal(`
+      <div class="modal-head"><h2>${icon('alert')} Person already enrolled</h2>
+        <p class="small muted">This face is already saved in the gallery.</p></div>
+      <div class="modal-body">
+        <div class="row" style="gap:14px">${avatar(dup, 'lg')}
+          <div style="min-width:0"><div style="font-size:16px;font-weight:600">${esc(dup.name)}</div>
+            <div>Employee ID: <strong class="mono" style="font-size:14px">${esc(dup.employee_id || 'not set')}</strong></div>
+            ${dup.department ? `<div class="small muted">${esc(dup.department)}</div>` : ''}
+            <div class="small muted">Similarity ${Number(dup.score).toFixed(2)}</div></div></div>
+        <p class="small muted">${isEmpty
+          ? `No photos were saved for “${esc(person.name)}”. If this is the same person, delete this new entry and use the existing profile.`
+          : `The photo was not added to “${esc(person.name)}”. Check that the right person is in front of the camera.`}</p>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" type="button" data-close>Close</button><span class="spacer"></span>
+        ${isEmpty ? `<button class="btn btn-danger" type="button" id="dup-del">${icon('trash')}Delete new entry</button>` : ''}
+        <button class="btn btn-primary" type="button" id="dup-open">${icon('user')}Open ${esc(dup.name)}</button>
+      </div>`);
+    pm.el.querySelector('#dup-open').addEventListener('click', () => { pm.close(); d.close(); openPerson(dup.id, onChange); });
+    pm.el.querySelector('#dup-del')?.addEventListener('click', async () => {
+      try { await api.deletePerson(id); toast(`New entry “${person.name}” deleted`, 'success'); pm.close(); d.close(); } catch (err) { toast(err.message, 'error'); }
+    });
+  };
+
   const enroll = async (files) => {
     $('#results').innerHTML = `<div class="result"><span class="spinner"></span> Processing ${files.length} photo${files.length === 1 ? '' : 's'}…</div>`;
     try {
@@ -270,6 +327,8 @@ async function openPerson(id, onChange) {
         ${x.warnings?.length ? `<div class="small muted">${x.warnings.map(esc).join('; ')}</div>` : ''}</div></div>`).join('');
       toast(`${r.accepted} of ${r.results.length} photo${r.results.length === 1 ? '' : 's'} added`, r.accepted ? 'success' : 'warning');
       await reload();
+      const dup = r.results.find((x) => x.duplicate_of)?.duplicate_of;
+      if (dup) showDuplicate(dup);
     } catch (e) { $('#results').innerHTML = ''; toast(e.message, 'error'); }
   };
   bindDropzone($('#drop'), $('#file'), enroll);
@@ -281,11 +340,21 @@ async function openPerson(id, onChange) {
     const camMode = b.dataset.src === 'camera';
     $('#src-upload').classList.toggle('hidden', camMode);
     $('#src-camera').classList.toggle('hidden', !camMode);
-    if (camMode) {
-      cam = cam || new Camera($('#d-video'));
-      try { await cam.start(); $('#d-ph').classList.add('hidden'); } catch (err) { $('#d-ph').innerHTML = `<div class="small">${esc(err.message)}</div>`; }
-    } else cam?.stop();
+    if (camMode) startCam(); else cam?.stop();
   });
+  const startCam = async (deviceId) => {
+    cam = cam || new Camera($('#d-video'));
+    $('#d-ph').innerHTML = `<div>${icon('camera')}<div class="small">Starting camera…</div></div>`;
+    $('#d-ph').classList.remove('hidden');
+    try {
+      const active = await cam.start(deviceId);
+      $('#d-ph').classList.add('hidden');
+      const devs = await Camera.devices();
+      $('#d-cam').innerHTML = devs.map((x, i) => `<option value="${esc(x.deviceId)}" ${x.deviceId === active ? 'selected' : ''}>${esc(x.label || `Camera ${i + 1}`)}</option>`).join('')
+        || '<option value="">Default camera</option>';
+    } catch (err) { $('#d-ph').innerHTML = `<div class="small">${esc(err.message)}</div>`; }
+  };
+  $('#d-cam').addEventListener('change', (e) => startCam(e.target.value || undefined));
   let shot = 0;
   $('#snap').addEventListener('click', async () => {
     const f = await cam?.grab(1280, 0.92);
@@ -293,7 +362,31 @@ async function openPerson(id, onChange) {
     enroll([new File([f.blob], `webcam-${++shot}.jpg`, { type: 'image/jpeg' })]);
   });
 
+  const runGuided = async () => {
+    cam?.stop();
+    $('#src-seg').querySelector('[data-src="upload"]').click();
+    const { accepted, duplicate } = await guidedCapture({
+      name: person.name, existing: (person.samples || []).length,
+      enroll: (files) => api.enroll(id, files), checkDuplicate: (blob) => api.duplicateCheck(id, blob),
+      checkSamples: (files) => api.checkSamples(id, files),
+    });
+    if (accepted) await reload();
+    if (duplicate) showDuplicate(duplicate);
+  };
+  $('#guided').addEventListener('click', runGuided);
+  if (guided) {
+    api.enrollmentGuide().then((g) => { if (g.auto_start_for_new_person && d.el.isConnected) runGuided(); }).catch(() => {});
+  }
+
   $('#samples').addEventListener('click', async (e) => {
+    const pb = e.target.closest('[data-profile]');
+    if (pb) {
+      try {
+        person = { ...person, ...(await api.updatePerson(id, { profile_sample_id: pb.dataset.profile })) };
+        paintHeader(); paintSamples(); toast('Profile photo updated', 'success');
+      } catch (err) { toast(err.message, 'error'); }
+      return;
+    }
     const b = e.target.closest('[data-sid]'); if (!b) return;
     if (!(await confirmDialog({ title: 'Delete this sample?', body: 'The face photo and its embeddings are removed permanently.', confirm: 'Delete', danger: true }))) return;
     try { await api.deleteSample(id, b.dataset.sid); await reload(); toast('Sample deleted', 'success'); } catch (err) { toast(err.message, 'error'); }

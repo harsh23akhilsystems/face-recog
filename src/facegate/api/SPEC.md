@@ -23,7 +23,7 @@
 | 401 | not signed in; bad credentials; face not recognised / liveness failed |
 | 403 | admin-only route; admin route from a face session; face sign-in turned off |
 | 404 | person / sample / thumbnail / user not found |
-| 409 | duplicate `employee_id` |
+| 409 | duplicate `employee_id` (message names the person who has it) |
 | 413 | upload too large |
 | 422 | invalid body, undecodable image, no face (verify), unknown mode, face sign-in framing problem (advice in `detail`), invalid user data |
 | 429 | sign-in locked: ≥ `max_failed_per_user` password failures for the username, or ≥ `max_failed_face_per_client` face failures from the IP, within `lock_window_minutes` |
@@ -41,7 +41,7 @@
 ## Inference
 | Method | Path | Form fields | Response |
 |---|---|---|---|
-| POST | `/detect` | `image` | `{width, height, faces:[{bbox, det_score, landmarks, sharpness}]}` |
+| POST | `/detect` | `image`, `size?` (96–1280: smaller detector input, faster for close faces) | `{width, height, faces:[{bbox, det_score, landmarks, sharpness, face_sharpness, pose:{yaw, pitch}}]}` (no embeddings; `face_sharpness` = inner-face blur score at 224 px) |
 | POST | `/recognize` | `image`, `mode?`, `source?` (≤ 32 chars, default `upload`), `log_events?` (bool; default from settings) | `{width, height, mode, elapsed_ms, faces:[…face, status, score, threshold, per_model, runner_up_score, person}]}` |
 | POST | `/verify` | `image_a`, `image_b` | `{mode, match, fused_score, fusion_threshold, per_model:{m:{score, threshold, match}}, face_a, face_b}` |
 
@@ -52,10 +52,13 @@
 |---|---|---|---|
 | GET | `/people?q=` | | search name / employee_id / department; includes `sample_count`, `cover_sample_id` |
 | POST | `/people` | `{name, employee_id?, department?, notes?}` | 201 |
-| GET | `/people/{id}` | | + `samples[]` {id, det_score, sharpness, face_px, has_thumb, models[], created_at} |
-| PATCH | `/people/{id}` | any of name, employee_id, department, notes, active | inactive people are never matched |
+| GET | `/people/{id}` | | + `samples[]` {id, det_score, sharpness, face_px, yaw, pitch, has_thumb, models[], created_at} |
+| PATCH | `/people/{id}` | any of name, employee_id, department, notes, active, profile_sample_id | inactive people are never matched; `profile_sample_id` must be one of the person's samples (422) — `null` = automatic (most frontal) |
 | DELETE | `/people/{id}` | | 204; cascades samples + embeddings; events kept with `person_id = NULL` |
-| POST | `/people/{id}/samples` | `images` (repeatable) | `{accepted, results:[{filename, accepted, sample_id, reason, warnings, det_score, sharpness, face_px}], person}` |
+| GET | `/enrollment/guide` | | guided-capture config: `steps[]` {key, prompt, hint, yaw, pitch}, `phase_prompts{hint}`, `voice`, `capture_max_side`, `detect_size`, `best_window_ms`, `max_motion`, `still_diff`, `remind_ms`, `guide_style`, `animations{intro, success}`, `intro_ms`, `max_center_offset`, `auto_submit`, `auto_start_for_new_person`, plus `min_face_px`, `min_det_score`, `min_sharpness`, `max_samples_per_person` |
+| POST | `/people/{id}/samples` | `images` (repeatable; results returned in upload order) | `{accepted, results:[{filename, accepted, sample_id, reason, warnings, det_score, sharpness, face_px, duplicate_of}], person}` |
+| POST | `/people/{id}/samples/check` | `images` (repeatable) | **dry run** of enroll: same gates and response shape, nothing stored (guided capture checks its chosen photos with it) |
+| POST | `/people/{id}/duplicate-check` | `image` | `{face_found, duplicate_of}` — `duplicate_of` = `{id, name, employee_id, department, cover_sample_id, score}` of a *different* person matching at ≥ `duplicate_threshold`, else `null` |
 | DELETE | `/people/{id}/samples/{sid}` | | 204 |
 | GET | `/samples/{sid}/thumb` | | `image/jpeg` 112×112 aligned crop |
 

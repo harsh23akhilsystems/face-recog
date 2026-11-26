@@ -16,14 +16,16 @@ import cv2
 import numpy as np
 
 from facegate.config import Settings
-from facegate.vision.align import norm_crop, sharpness
+from facegate.vision.align import face_sharpness, norm_crop, sharpness
 from facegate.vision.types import Face
 
 log = logging.getLogger(__name__)
 
 
 class Detector(Protocol):
-    def detect(self, img_bgr: np.ndarray, input_size: tuple[int, int] | None = None) -> list[Face]: ...
+    def detect(
+        self, img_bgr: np.ndarray, input_size: tuple[int, int] | None = None, max_side: int | None = None
+    ) -> list[Face]: ...
 
 
 class Recognizer(Protocol):
@@ -150,11 +152,28 @@ class FacePipeline:
         return list(self.recognizers)
 
     # ------------------------------------------------------------------ inference
-    def detect(self, img_bgr: np.ndarray, input_size: tuple[int, int] | None = None) -> list[Face]:
+    def detect(
+        self,
+        img_bgr: np.ndarray,
+        input_size: tuple[int, int] | None = None,
+        *,
+        quality: bool = False,
+        max_side: int | None = None,
+    ) -> list[Face]:
+        """Detect faces; with ``quality`` also attach the aligned crop and its sharpness (cheap, no embeddings).
+        ``input_size`` / ``max_side`` run the detector at another input size (``max_side``: smaller, faster, for
+        close-up faces such as guided capture)."""
         if self.detector is None:
             raise RuntimeError("Face detector is not loaded")
+        kw = {k: v for k, v in (("input_size", input_size), ("max_side", max_side)) if v}
         with self._lock:
-            return self.detector.detect(img_bgr, input_size) if input_size else self.detector.detect(img_bgr)
+            faces = self.detector.detect(img_bgr, **kw)
+        if quality:
+            for face in faces:
+                face.crop = norm_crop(img_bgr, face.kps)
+                face.sharpness = sharpness(face.crop)
+                face.face_sharpness = face_sharpness(img_bgr, face.kps)
+        return faces
 
     def embed(self, img_bgr: np.ndarray, faces: list[Face]) -> list[Face]:
         """Align and embed already-detected faces (lets callers skip recognition on frames they reject)."""

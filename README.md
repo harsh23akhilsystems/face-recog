@@ -34,7 +34,8 @@ On first start the server creates the user **`admin`** and writes its random pas
 `data/initial_admin_credentials.txt` (owner-only). Open http://localhost:8100 → you land on **/login** → sign in,
 then delete that file and create real accounts with `facegate user add` (see **Sign-in** below).
 
-Then in the console: **People → Add person → upload 3–5 photos**, and open **Live recognition**.
+Then in the console: **People → Add person → Continue**: a voice-guided face scan opens the camera, you turn your
+head slowly and the best photo for every angle is picked and saved automatically (or upload 3–5 photos), then open **Live recognition**.
 
 > Webcam access requires `http://localhost` or HTTPS. To use cameras on other machines, put FaceGate behind a
 > TLS reverse proxy (see `SECURITY.md`).

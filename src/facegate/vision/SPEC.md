@@ -6,7 +6,7 @@ Turns an image into faces with embeddings. Only this folder touches ONNX Runtime
 | File | Responsibility |
 |---|---|
 | `detector.py` | `SCRFDDetector` — letterbox, run SCRFD, decode anchors, NMS; helpers `distance2bbox`, `distance2kps`, `nms` |
-| `align.py` | `ARCFACE_TEMPLATE`, `estimate_norm`, `norm_crop` (112×112 warp), `sharpness` |
+| `align.py` | `ARCFACE_TEMPLATE`, `estimate_norm`, `norm_crop` (112×112 warp), `sharpness`, `face_sharpness` (inner face, 224 px — background-proof blur score), `head_pose` (yaw/pitch from landmarks, guidance only) |
 | `recognizer.py` | `OnnxRecognizer` base, `ArcFaceRecognizer`, `AdaFaceRecognizer`, `RECOGNIZER_TYPES`, `l2_normalize` |
 | `pipeline.py` | `FacePipeline` — loads all models (incl. optional liveness, role `liveness` in `ModelStatus`), `analyze()` = detect → align → embed, `detect(img, input_size?)`, `embed(img, faces)`, `check_liveness()`, `warmup()` (one run per model at startup so the first request is not slow); `decode_image`, `encode_jpeg` |
 | `liveness.py` | `MiniFASLiveness` — optional passive anti-spoof for face sign-in: 1.5× square crop, 128 px, RGB/255, score = real − spoof logit |
@@ -17,7 +17,7 @@ Turns an image into faces with embeddings. Only this folder touches ONNX Runtime
 | | |
 |---|---|
 | File | `det_10g.onnx` (SCRFD-10GF with keypoints, InsightFace `buffalo_l`) |
-| Input | letterboxed to `detector.input_size` (640×640), top-left aligned, zero padding; RGB; `(x − 127.5) / 128` |
+| Input | fitted inside `detector.input_size` (640×640), top-left aligned, zero-padded to a multiple of the max stride; RGB; `(x − 127.5) / 128` |
 | Outputs | 9 tensors = 3 strides (8/16/32) × {score, bbox distances, 5-kps offsets}; 2 anchors per location |
 | Decode | anchor centres × stride; `distance2bbox`, `distance2kps`; scale back by letterbox ratio |
 | Post | score ≥ `score_threshold` (0.5) → NMS IoU `nms_threshold` (0.4) → top `max_faces` → sorted by area (largest first) |
@@ -32,6 +32,14 @@ landmarks to the ArcFace template, warped to 112×112:
 ```
 Both recognizers were trained on this exact warp — keep `align.py` the single source of the template.
 Sharpness = variance of Laplacian on the aligned grey crop (used by the enrollment gate).
+`FacePipeline.detect(img, quality=True, max_side=None)` also attaches crop + sharpness (no embeddings) — used by `/detect`;
+`max_side` shrinks the detector input (guided capture uses 384 ≈ 40 ms vs 120 ms on CPU).
+Letterbox: the image is fitted inside `input_size` and padded only to the next multiple of the largest stride
+(16:9 → 640×384, not 640×640); SCRFD has dynamic H/W, so results are identical and ~30% faster.
+`head_pose(kps)` → `(yaw, pitch)`: nose position along the eye line (×2, ≈ sin yaw; + = nose toward image right, i.e.
+the person turned to their left) and between eye and mouth lines, both relative to `ARCFACE_TEMPLATE` (so the template
+gives `(0, 0)`). Pitch varies with face shape/camera height — compare against the same person's frontal value.
+Used only to guide enrollment capture; never affects matching.
 
 ## Recognizers
 | | ArcFace | AdaFace |

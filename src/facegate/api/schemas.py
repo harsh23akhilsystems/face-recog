@@ -20,6 +20,7 @@ class PersonUpdate(BaseModel):
     department: str | None = Field(default=None, max_length=120)
     notes: str | None = Field(default=None, max_length=1000)
     active: bool | None = None
+    profile_sample_id: str | None = Field(default=None, max_length=64)  # null = automatic (most frontal photo)
 
 
 class RuntimeSettingsPatch(BaseModel):

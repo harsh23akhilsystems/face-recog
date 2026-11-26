@@ -64,6 +64,21 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS ix_events_ts ON events(ts);
 """
 
+# Columns added after the first release; created on open when missing (SQLite has no ADD COLUMN IF NOT EXISTS).
+MIGRATIONS = {
+    "samples": {"yaw": "REAL", "pitch": "REAL"},  # head pose at capture (vision.align.head_pose); NULL = unknown
+    "people": {"profile_sample_id": "TEXT"},  # operator-chosen profile photo; NULL = most frontal sample
+}
+
+# Profile photo: the operator's choice if it still exists, else the most frontal sample (|yaw| + |pitch|; a person's
+# natural pitch offset is shared by all their photos, while chin-up/down shots differ by ≥ 0.07), then the best
+# quality. Samples with unknown pose sort after posed ones.
+COVER_SQL = (
+    "COALESCE((SELECT id FROM samples WHERE id = p.profile_sample_id AND person_id = p.id),"
+    " (SELECT id FROM samples WHERE person_id = p.id"
+    " ORDER BY yaw IS NULL, ABS(COALESCE(yaw, 0)) + ABS(COALESCE(pitch, 0)), sharpness * det_score DESC LIMIT 1))"
+)
+
 
 def utcnow() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
@@ -78,7 +93,16 @@ class GalleryStore:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode = WAL")
         self._conn.executescript(SCHEMA)
+        self._migrate()
         self.version = 0  # bumped on every gallery change so the matcher index knows to rebuild
+
+    def _migrate(self) -> None:
+        with self._tx() as c:
+            for table, cols in MIGRATIONS.items():
+                have = {r["name"] for r in c.execute(f"PRAGMA table_info({table})")}
+                for col, typ in cols.items():
+                    if col not in have:
+                        c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
 
     def close(self) -> None:
         self._conn.close()
@@ -111,7 +135,7 @@ class GalleryStore:
         return self.get_person(pid)  # type: ignore[return-value]
 
     def update_person(self, pid: str, **fields: Any) -> dict[str, Any] | None:
-        allowed = {"name", "employee_id", "department", "notes", "active"}
+        allowed = {"name", "employee_id", "department", "notes", "active", "profile_sample_id"}
         sets = {k: v for k, v in fields.items() if k in allowed}
         if sets:
             if "active" in sets:
@@ -135,8 +159,7 @@ class GalleryStore:
     def list_people(self, query: str | None = None, person_id: str | None = None) -> list[dict[str, Any]]:
         sql = (
             "SELECT p.*, COUNT(s.id) AS sample_count,"
-            " (SELECT id FROM samples WHERE person_id = p.id ORDER BY sharpness * det_score DESC LIMIT 1)"
-            " AS cover_sample_id"
+            f" {COVER_SQL} AS cover_sample_id"
             " FROM people p LEFT JOIN samples s ON s.person_id = p.id"
         )
         where, args = [], []
@@ -162,13 +185,15 @@ class GalleryStore:
         face_px: float,
         embeddings: dict[str, np.ndarray],
         thumb: bytes | None,
+        pose: tuple[float, float] | None = None,
     ) -> str:
         sid = uuid.uuid4().hex
+        yaw, pitch = pose if pose else (None, None)
         with self._tx() as c:
             c.execute(
-                "INSERT INTO samples (id, person_id, det_score, sharpness, face_px, thumb, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (sid, person_id, det_score, sharpness, face_px, thumb, utcnow()),
+                "INSERT INTO samples (id, person_id, det_score, sharpness, face_px, thumb, created_at, yaw, pitch)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (sid, person_id, det_score, sharpness, face_px, thumb, utcnow(), yaw, pitch),
             )
             c.executemany(
                 "INSERT INTO embeddings (sample_id, model, dim, vector) VALUES (?, ?, ?, ?)",
@@ -188,7 +213,7 @@ class GalleryStore:
     def list_samples(self, person_id: str) -> list[dict[str, Any]]:
         with self._lock:
             rows = self._conn.execute(
-                "SELECT s.id, s.person_id, s.det_score, s.sharpness, s.face_px, s.created_at,"
+                "SELECT s.id, s.person_id, s.det_score, s.sharpness, s.face_px, s.created_at, s.yaw, s.pitch,"
                 " s.thumb IS NOT NULL AS has_thumb, GROUP_CONCAT(e.model) AS models"
                 " FROM samples s LEFT JOIN embeddings e ON e.sample_id = s.id"
                 " WHERE s.person_id = ? GROUP BY s.id ORDER BY s.created_at",
@@ -205,6 +230,17 @@ class GalleryStore:
         with self._lock:
             row = self._conn.execute("SELECT thumb FROM samples WHERE id = ?", (sample_id,)).fetchone()
         return row["thumb"] if row else None
+
+    def set_pose(self, sample_id: str, yaw: float, pitch: float) -> None:
+        with self._tx() as c:
+            c.execute("UPDATE samples SET yaw = ?, pitch = ? WHERE id = ?", (yaw, pitch, sample_id))
+
+    def iter_unposed_thumbs(self) -> list[tuple[str, bytes]]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id, thumb FROM samples WHERE yaw IS NULL AND thumb IS NOT NULL"
+            ).fetchall()
+        return [(r["id"], r["thumb"]) for r in rows]
 
     def iter_thumbs(self) -> Iterator[tuple[str, bytes]]:
         with self._lock:
