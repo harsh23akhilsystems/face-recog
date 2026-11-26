@@ -3,10 +3,14 @@
 ## Files
 | File | Responsibility |
 |---|---|
-| `index.html` | Shell: sidebar (brand, nav, status pill, theme toggle), top bar, content, toast + modal roots |
+| `index.html` | Shell: sidebar (brand, nav, status pill, signed-in user + Sign out, theme toggle), top bar, content, toast + modal roots |
+| `login.html` | Sign-in page (Augastam design): animated backdrop, hero carousel, password form, face sign-in step, success step |
+| `assets/css/login.css` | Sign-in styles (`lg-*`); card tokens for light + dark, brand-blue backdrop in both |
+| `assets/js/login.js` | Sign-in behaviour: carousel, parallax, password sign-in, camera + quality loop + face sign-in |
+| `assets/img/augastam_logo.svg` | Brand logo on the sign-in card |
 | `assets/css/styles.css` | Design tokens (light + dark) and every component style |
 | `assets/js/app.js` | Router (`ROUTES`), health pill (every 30 s), theme, "models missing" notice |
-| `assets/js/api.js` | One function per backend endpoint; `ApiError` with the server's `detail` |
+| `assets/js/api.js` | One function per backend endpoint; `ApiError` with the server's `detail`; any 401 → `/login`; `auth.me/logout` |
 | `assets/js/ui.js` | Icons, `esc`, avatars, formatters, toasts, modal/drawer/confirm, `drawFaces`, `meter`, `bindDropzone` |
 | `assets/js/camera.js` | `Camera`: start/stop/grab/devices with readable error messages |
 | `assets/js/pages/*.js` | One module per page (below) |
@@ -21,6 +25,7 @@
 - **No build, no CDN**: vanilla ES modules; works on an offline intranet.
 
 ## Shell
+The sidebar footer shows the signed-in user (initial, name, role and how they signed in) with a **Sign out** button.
 Below 900 px the sidebar becomes an off-canvas drawer with a menu button.
 Status pill: `Ready · N recognizers` (green), `Degraded · models missing` (amber), `Offline · server unreachable` (red).
 Pages flagged `needsModels` show a notice listing missing model files and the command to fix it.
@@ -52,3 +57,17 @@ export async function mounted(root, state, actions) { return cleanupFn; } // opt
 ```
 To add a page: create `pages/<name>.js`, register it in `ROUTES` in `app.js`, add a nav link in `index.html`, and
 update this spec.
+
+## Sign-in page (`/login`)
+- Served only when signed out (`/` redirects here; signed in, `/login` redirects to `/`). Success → `/`.
+- **Password step**: show/hide toggle, inline error with the server's message (`role=alert`), spinner while signing in.
+- **Face step** (button shown only when `/auth/face/status.available`; explains if no account is linked yet):
+  mirrored camera in a 4:3 stage with an oval guide, scanning line + pulsing ring while the camera is live, face
+  box (green = good, amber = fix), hold-still meter, and a `role=status` line with the server's advice.
+  Loop: one request in flight, every 600 ms → `/auth/quality`; 2 good frames in a row → the **same** frame to
+  `/auth/face`. 401 → retry up to 3 times with a pause; 422 → advice, not counted; 429 → stop, no retry button.
+  Leaving the step or the page releases the camera.
+- Branding: Augastam logo and hero copy from the original application; the app name (`app.name`) is shown on
+  the card. No web fonts are fetched (intranet); the font stack falls back to system fonts.
+- Theme: same `fg-theme` key as the console, applied before first paint. `prefers-reduced-motion` stops every
+  animation and the parallax.

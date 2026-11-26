@@ -34,6 +34,14 @@
         <div class="system-status" id="system-status" role="status">
           <span class="dot"></span><span class="label">Checking…</span>
         </div>
+        <div class="user-chip" id="user-chip" hidden>
+          <span class="avatar sm" id="user-avatar" aria-hidden="true"></span>
+          <div class="user-meta">
+            <div class="user-name" id="user-name"></div>
+            <div class="user-how small muted" id="user-how"></div>
+          </div>
+          <button class="btn btn-ghost btn-icon btn-sm" id="logout-btn" type="button" aria-label="Sign out" title="Sign out"><span data-icon="logout"></span></button>
+        </div>
         <button class="btn btn-ghost btn-sm theme-toggle" id="theme-toggle" type="button" aria-label="Toggle colour theme">
           <span data-icon="moon"></span><span class="label">Dark mode</span>
         </button>

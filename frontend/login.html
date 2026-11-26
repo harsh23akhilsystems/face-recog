@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in · Augastam</title>
+<meta name="description" content="Sign in to the FaceGate console with your password or your face">
+<script>
+  // Same theme key as the console, applied before first paint.
+  try { const t = localStorage.getItem('fg-theme'); if (t) document.documentElement.dataset.theme = t; } catch {}
+</script>
+<link rel="stylesheet" href="/assets/css/login.css">
+</head>
+<body>
+<div class="lg-page" id="page">
+  <div class="lg-backdrop" aria-hidden="true">
+    <div class="lg-glow lg-glow-1"></div>
+    <div class="lg-glow lg-glow-2"></div>
+    <div class="lg-dotgrid"></div>
+    <i class="lg-bubble" style="left:5%;width:46px;height:46px;animation-duration:16s;animation-delay:0s"></i>
+    <i class="lg-bubble" style="left:18%;width:14px;height:14px;animation-duration:11s;animation-delay:-4s"></i>
+    <i class="lg-bubble" style="left:33%;width:28px;height:28px;animation-duration:14s;animation-delay:-8s"></i>
+    <i class="lg-bubble" style="left:46%;width:10px;height:10px;animation-duration:10s;animation-delay:-2s"></i>
+    <i class="lg-bubble" style="left:58%;width:56px;height:56px;animation-duration:19s;animation-delay:-10s"></i>
+    <i class="lg-bubble" style="left:71%;width:18px;height:18px;animation-duration:12s;animation-delay:-6s"></i>
+    <i class="lg-bubble" style="left:84%;width:34px;height:34px;animation-duration:15s;animation-delay:-3s"></i>
+    <i class="lg-bubble" style="left:93%;width:12px;height:12px;animation-duration:9s;animation-delay:-7s"></i>
+    <div class="lg-par">
+      <span class="lg-fi" style="left:6%;top:14%;width:34px;height:34px;animation-duration:7s;animation-delay:0s"><svg viewBox="0 0 24 24"><path d="M12 21s-7-4.5-9-9a5 5 0 019-3 5 5 0 019 3c-2 4.5-9 9-9 9z"/></svg></span>
+      <span class="lg-fi" style="left:38%;top:8%;width:30px;height:30px;animation-duration:9s;animation-delay:-2s"><svg viewBox="0 0 24 24"><path d="M10.5 20.5l-7-7a4.95 4.95 0 117-7l7 7a4.95 4.95 0 11-7 7zM8.5 8.5l7 7"/></svg></span>
+      <span class="lg-fi" style="left:54%;top:70%;width:40px;height:40px;animation-duration:11s;animation-delay:-4s"><svg viewBox="0 0 24 24"><path d="M8 3c0 5 8 5 8 9s-8 4-8 9M16 3c0 5-8 5-8 9s8 4 8 9M9 7h6M9 17h6"/></svg></span>
+      <span class="lg-fi" style="left:12%;top:76%;width:26px;height:26px;animation-duration:8s;animation-delay:-1s"><svg viewBox="0 0 24 24"><path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6z"/></svg></span>
+      <span class="lg-fi" style="left:66%;top:12%;width:34px;height:34px;animation-duration:10s;animation-delay:-6s"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6zM9 12l2 2 4-4"/></svg></span>
+      <span class="lg-fi" style="left:30%;top:84%;width:32px;height:32px;animation-duration:9s;animation-delay:-3s"><svg viewBox="0 0 24 24"><path d="M10 4a2 2 0 014 0v9a4 4 0 11-4 0zM12 9v6"/></svg></span>
+      <span class="lg-fi" style="left:90%;top:46%;width:36px;height:36px;animation-duration:12s;animation-delay:-5s"><svg viewBox="0 0 24 24"><path d="M6 3v6a4 4 0 008 0V3M10 13v2a5 5 0 0010 0v-1M20 10a2 2 0 100 4 2 2 0 000-4z"/></svg></span>
+      <span class="lg-fi" style="left:48%;top:38%;width:22px;height:22px;animation-duration:8s;animation-delay:-7s"><svg viewBox="0 0 24 24"><path d="M12 21s-7-4.5-9-9a5 5 0 019-3 5 5 0 019 3c-2 4.5-9 9-9 9z"/></svg></span>
+      <span class="lg-fi" style="left:80%;top:82%;width:22px;height:22px;animation-duration:7s;animation-delay:-2.5s"><svg viewBox="0 0 24 24"><path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6z"/></svg></span>
+    </div>
+    <svg class="lg-ecg" viewBox="0 0 1400 120" preserveAspectRatio="none"><path d="M0 70H300l25-5 20 5h60l20-50 22 100 22-70 16 20h120l25-6 22 6h140l20-50 22 100 22-70 16 20H1400"/></svg>
+    <svg class="lg-ecg lg-ecg-2" viewBox="0 0 1400 120" preserveAspectRatio="none"><path d="M0 70H300l25-5 20 5h60l20-50 22 100 22-70 16 20h120l25-6 22 6h140l20-50 22 100 22-70 16 20H1400"/></svg>
+  </div>
+
+  <main class="lg-main">
+    <div class="lg-grid">
+      <div class="lg-hero">
+        <h1 class="lg-hero-title">Introducing New <em>Healthcare Suite</em></h1>
+        <p class="lg-hero-text">Clinics, doctors and labs work from one connected patient record, so your team spends less time on paperwork and more time with patients.</p>
+        <div class="lg-pcards" id="pcards">
+          <button type="button" class="lg-pc" aria-pressed="false">
+            <span class="lg-pc-icon"><svg class="ico ico-22" viewBox="0 0 24 24"><path d="M6 3v6a4 4 0 008 0V3M10 13v2a5 5 0 0010 0v-2"/><circle cx="20" cy="11" r="2"/></svg></span>
+            <strong>Augastam Clinic</strong><span class="lg-pc-text">Clinic management and patient care</span>
+          </button>
+          <button type="button" class="lg-pc" aria-pressed="false">
+            <span class="lg-pc-icon"><svg class="ico ico-22" viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4h6v3H9zM9 12h6M9 16h4"/></svg></span>
+            <strong>Augastam EMR</strong><span class="lg-pc-text">Patient records and specialty workflows</span>
+          </button>
+          <button type="button" class="lg-pc" aria-pressed="false">
+            <span class="lg-pc-icon"><svg class="ico ico-22" viewBox="0 0 24 24"><path d="M9 3h6M10 3v6l-5.5 9.5A2 2 0 006.2 21h11.6a2 2 0 001.7-2.5L14 9V3M7.5 15h9"/></svg></span>
+            <strong>Augastam Lab</strong><span class="lg-pc-text">Test management and reporting</span>
+          </button>
+        </div>
+        <div class="lg-hero-dots" aria-hidden="true" id="dots"><i></i><i></i><i></i></div>
+      </div>
+
+      <div class="lg-card-col">
+        <div class="lg-card">
+          <div class="lg-brand"><img src="/assets/img/augastam_logo.svg" alt="Augastam"><span class="lg-brand-app" id="appName">FaceGate</span></div>
+
+          <!-- step 1: password -->
+          <form class="lg-step" id="stepPassword" novalidate>
+            <h2 class="lg-title">Welcome Back <span class="lg-title-wave" aria-hidden="true">👋</span></h2>
+            <p class="lg-subtitle">Sign in to continue.</p>
+            <div class="lg-field">
+              <label class="lg-label" for="username">Email ID / User Name<span class="lg-req">*</span></label>
+              <div class="lg-input-wrap">
+                <span class="lg-input-icon"><svg class="ico ico-16" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg></span>
+                <input id="username" type="text" class="lg-input" placeholder="Enter your email or username" autocomplete="username">
+              </div>
+            </div>
+            <div class="lg-field">
+              <label class="lg-label" for="password">Password<span class="lg-req">*</span></label>
+              <div class="lg-input-wrap">
+                <span class="lg-input-icon"><svg class="ico ico-16" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg></span>
+                <input id="password" type="password" class="lg-input" placeholder="Enter your password" autocomplete="current-password">
+                <button type="button" tabindex="-1" class="lg-input-toggle" id="togglePw" aria-label="Show password">
+                  <svg class="ico ico-16" viewBox="0 0 24 24" id="eyeIcon"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+                </button>
+              </div>
+              <p class="lg-field-note is-invalid" id="pwError" role="alert" hidden></p>
+            </div>
+            <button type="button" class="lg-link" disabled>Forgot Password?</button>
+            <div class="lg-spacer"></div>
+            <div class="lg-actions">
+              <button type="submit" class="lg-btn lg-btn-primary" id="btnContinue">Continue <svg class="ico ico-16" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+            </div>
+            <div id="faceOption" hidden>
+              <div class="lg-or">or</div>
+              <button type="button" class="lg-btn lg-btn-ghost lg-btn-face" id="btnFace">
+                <svg class="ico ico-16" viewBox="0 0 24 24"><path d="M4 8V6a2 2 0 012-2h2M16 4h2a2 2 0 012 2v2M20 16v2a2 2 0 01-2 2h-2M8 20H6a2 2 0 01-2-2v-2M9 10h.01M15 10h.01M9.5 15a3.5 3.5 0 005 0"/></svg>
+                Login via Face Recognition
+              </button>
+            </div>
+          </form>
+
+          <!-- step 2: face -->
+          <div class="lg-step" id="stepFace" hidden>
+            <h2 class="lg-title">Face Recognition <span class="lg-title-wave" aria-hidden="true">🙂</span></h2>
+            <p class="lg-subtitle">Look at the camera — you’ll be signed in when your face is recognised.</p>
+            <div class="lg-face-stage">
+              <video id="cam" autoplay playsinline muted></video>
+              <canvas id="overlay"></canvas>
+              <div class="lg-face-guide" id="guide"></div>
+              <div class="lg-face-ring" id="scanRing" hidden></div>
+              <div class="lg-face-scan" id="scanLine" hidden></div>
+              <div class="lg-face-meter" aria-hidden="true"><i id="holdMeter"></i></div>
+            </div>
+            <div class="lg-face-status" id="faceStatus" role="status" aria-live="polite"><span class="lg-spinner lg-spinner-dark"></span> Starting camera…</div>
+            <p class="lg-face-note">Only users whose account is linked to their enrolled face can use this. Frames are checked on this server and never stored.</p>
+            <div class="lg-spacer"></div>
+            <div class="lg-actions">
+              <button type="button" class="lg-btn lg-btn-ghost" id="btnBack">
+                <svg class="ico ico-16" viewBox="0 0 24 24"><path d="M19 12H5M11 18l-6-6 6-6"/></svg> Password
+              </button>
+              <button type="button" class="lg-btn lg-btn-primary" id="btnRetry" hidden>Try again</button>
+            </div>
+          </div>
+
+          <!-- step 3: success -->
+          <div class="lg-step" id="stepSuccess" hidden>
+            <div class="lg-success">
+              <span class="lg-success-badge"><svg class="ico" viewBox="0 0 24 24" style="width:30px;height:30px;stroke-width:2.4"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
+              <div style="font-family:Poppins,sans-serif;font-size:18px;color:var(--lg-ink)" id="welcomeName">Welcome</div>
+              <div style="color:var(--lg-muted);font-weight:400" id="welcomeHow">Signing you in…</div>
+            </div>
+          </div>
+
+          <div class="lg-support">Trouble signing in? Call Support at <a href="tel:+918447846239">+91-8447846239</a></div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer class="lg-footer">
+    <div class="lg-footer-inner">
+      <p class="lg-footer-powered"><i class="lg-live-dot" aria-hidden="true"></i>Powered by <strong>Akhil Systems Pvt. Ltd.</strong></p>
+      <div class="lg-footer-actions">
+        <div class="lg-social">
+          <a href="#" aria-label="LinkedIn"><svg class="ico-fill ico-14" viewBox="0 0 24 24"><path d="M4.98 3.5a2.5 2.5 0 11-.02 5 2.5 2.5 0 01.02-5zM3 9.75h4V21H3zM9.5 9.75h3.8v1.6h.06c.53-1 1.84-2.05 3.78-2.05 4.04 0 4.78 2.66 4.78 6.1V21h-4v-4.9c0-1.17-.02-2.67-1.63-2.67-1.63 0-1.88 1.27-1.88 2.58V21h-4z"/></svg></a>
+          <a href="#" aria-label="YouTube"><svg class="ico-fill ico-14" viewBox="0 0 24 24"><path d="M21.6 7.2a2.5 2.5 0 00-1.8-1.8C18.2 5 12 5 12 5s-6.2 0-7.8.4A2.5 2.5 0 002.4 7.2C2 8.8 2 12 2 12s0 3.2.4 4.8a2.5 2.5 0 001.8 1.8C5.8 19 12 19 12 19s6.2 0 7.8-.4a2.5 2.5 0 001.8-1.8c.4-1.6.4-4.8.4-4.8s0-3.2-.4-4.8zM10 15V9l5.2 3z"/></svg></a>
+          <a href="#" aria-label="Facebook"><svg class="ico-fill ico-14" viewBox="0 0 24 24"><path d="M13.5 22v-8.2h2.8l.5-3.3h-3.3V8.4c0-.9.4-1.7 1.8-1.7h1.6V3.8S15.6 3.5 14.3 3.5c-2.7 0-4.4 1.6-4.4 4.5v2.5H7v3.3h2.9V22z"/></svg></a>
+        </div>
+        <label class="lg-lang">
+          <svg class="ico ico-14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.2 3 14.8 0 18M12 3c-3 3.2-3 14.8 0 18"/></svg>
+          <select aria-label="Language"><option value="en">English</option><option value="hi">हिन्दी</option><option value="ar">العربية</option></select>
+          <svg class="ico ico-14" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+        </label>
+      </div>
+    </div>
+  </footer>
+</div>
+<script type="module" src="/assets/js/login.js"></script>
+</body>
+</html>

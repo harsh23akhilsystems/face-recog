@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import cv2
 import pytest
-from fastapi.testclient import TestClient
 
-from facegate.api.main import create_app
-from tests.conftest import face_image
+from tests.conftest import face_image, signed_in_client
 
 
 def jpg(img) -> bytes:
@@ -17,7 +15,7 @@ def jpg(img) -> bytes:
 
 @pytest.fixture()
 def client(service):
-    with TestClient(create_app(service)) as c:
+    with signed_in_client(service) as c:
         yield c
 
 
@@ -91,6 +89,6 @@ def test_settings_roundtrip(client):
 
 def test_not_ready_returns_503(service):
     service.pipeline.recognizers.clear()
-    with TestClient(create_app(service)) as c:
+    with signed_in_client(service) as c:
         r = c.post("/api/v1/recognize", files={"image": ("q.png", jpg(face_image(1)), "image/png")})
         assert r.status_code == 503

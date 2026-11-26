@@ -73,7 +73,7 @@ export async function mounted(root, state) {
     root.querySelector('#models').innerHTML = h.models.map((m) => {
       const st = !m.enabled ? '<span class="badge">Disabled</span>'
         : m.loaded ? '<span class="badge success">Loaded</span>' : '<span class="badge danger">Missing</span>';
-      const role = m.role === 'detector' ? 'Face detector · 5-point landmarks' : 'Recognizer · 512-d embedding';
+      const role = { detector: 'Face detector · 5-point landmarks', liveness: 'Liveness · anti-spoof for face sign-in (optional)' }[m.role] || 'Recognizer · 512-d embedding';
       const prov = m.providers?.[0]?.replace('ExecutionProvider', '') || '';
       return `<div class="model-row"><span class="model-swatch" style="background:${MODEL_COLOR[m.name] || 'var(--text-muted)'}"></span>
         <div style="flex:1;min-width:0"><div class="row" style="gap:8px"><strong>${esc(MODEL_LABEL[m.name] || m.name)}</strong>${prov ? `<span class="badge plain">${esc(prov)}</span>` : ''}</div>

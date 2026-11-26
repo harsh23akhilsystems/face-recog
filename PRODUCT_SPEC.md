@@ -21,9 +21,11 @@ access-assist — with an interface that non-technical staff (HR, reception, sec
 - Activity log with cooldown, filters, CSV export, retention purge.
 - Live-tunable settings; threshold calibration tool.
 - REST API + CLI.
+- Console sign-in: password or face (linked gallery person), sessions, lockout, login audit log, admin/staff roles,
+  optional passive liveness for face sign-in.
 
 ## Out of scope (v1)
-Liveness / anti-spoofing · user authentication & roles in the console · door-controller integration ·
+Active (challenge-response) liveness · user-management pages in the console (CLI/API only) · SSO · door-controller integration ·
 multi-tenant · video file processing · face clustering of unknowns. See `ARCHITECTURE.md` → Extending.
 
 ## Success criteria

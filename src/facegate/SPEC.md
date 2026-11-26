@@ -6,8 +6,10 @@ Sub-folders have their own specs: `vision/SPEC.md`, `gallery/SPEC.md`, `api/SPEC
 | File | Responsibility |
 |---|---|
 | `service.py` | `FaceService` — the only façade the API and CLI call: recognize, enroll, verify, detect, events, runtime settings, health, reembed |
+| `auth.py` | `AuthService` — users (PBKDF2), sessions (hashed tokens), login audit + lockout, password and face sign-in, first-start admin |
+| `quality.py` | Live-camera checks for face sign-in on SCRFD detections, each with a plain-language fix |
 | `config.py` | Typed settings from `configs/config.yaml` (pydantic); `load_settings`, cached `get_settings`; `FG_CONFIG` / `FG_ROOT` overrides |
-| `cli.py` | `facegate` command: `status`, `enroll-dir`, `identify`, `verify`, `evaluate`, `reembed` |
+| `cli.py` | `facegate` command: `status`, `enroll-dir`, `identify`, `verify`, `evaluate`, `reembed`, `user …` |
 | `evaluation.py` | Threshold calibration: `collect_embeddings`, `pair_scores`, `roc_metrics`, `evaluate` |
 | `__init__.py` | version |
 
@@ -57,3 +59,33 @@ Input `root/<person>/*.jpg` — ≥ 20 people, ≥ 3 images each, from the deplo
   means, max impostor score, TAR at FAR 1e-2/1e-3/1e-4 (only when there are ≥ 1/FAR impostor pairs).
 - `recommended`: lowest threshold with FAR ≤ `--target-far` and `reliable: true`; with too few impostor pairs it
   falls back to the EER point and marks `reliable: false`.
+
+## Sign-in (`auth.py`)
+Tables `users`, `sessions`, `login_events` live in the gallery database and share its connection and lock.
+- **Password**: PBKDF2-SHA256 (`auth.password_iterations`), per-user salt; unknown usernames are hashed against a
+  dummy so timing does not reveal which accounts exist.
+- **Sessions**: `secrets.token_urlsafe(32)` in the cookie; only its SHA-256 is stored; `auth.session_hours`;
+  expired rows are purged on startup. Changing a password or removing a user ends their sessions.
+- **Face sign-in** (checked in order): `auth.face_login` on and models loaded (503) → not locked (429) →
+  `pipeline.analyze` + `quality.analyze` (422 with the first piece of advice; logged `rejected`, not counted) →
+  liveness, when a model is loaded and mode `enforce` (401) → `matcher.identify(…, auth.face_mode)` must be `match`
+  → the matched person must be linked to an active user (`users.person_id`, unique) → session with method `face`.
+  There are no separate face templates: the People page's samples are the templates, and deleting the person
+  unlinks the account (`ON DELETE SET NULL`).
+- **Roles**: `admin` may manage users, only from a password session; `staff` uses the whole console.
+- **First start**: with no users, creates `admin` with a random password in `data/initial_admin_credentials.txt`
+  (mode 0600).
+
+## Quality checks (`quality.py`, thresholds in `auth.quality`)
+`one_face` · `face_size` (width fraction and px) · `centered` · `sharpness` · `brightness` · `frontal` (yaw from nose
+vs eye midpoint) · `level` (eye-line roll) · `detector_confidence`. Heuristics for a 640×480 webcam — tune per camera.
+
+## CLI — users
+```bash
+facegate user list
+facegate user add <username> [--name] [--role admin|staff] [--person-id ID | --employee-id EMP] [--password]
+facegate user link <username> (--person-id ID | --employee-id EMP | --unlink)
+facegate user passwd <username> [--password]
+facegate user remove <username>          # refuses to remove the last admin
+```
+Omit `--password` to be prompted (keeps it out of shell history). Needs only the database, not the models.

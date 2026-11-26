@@ -5,10 +5,11 @@ Run with `make test`. No model weights or network are needed, and `data/` is nev
 ## Files
 | File | Tests |
 |---|---|
-| `conftest.py` | Fixtures: temp config + DB via `FG_CONFIG` / `FG_ROOT`; `FakeDetector`, `FakeRecognizer`, `FakePipeline`; `face_image()`, `prototype()` |
+| `conftest.py` | Fixtures: temp config + DB via `FG_CONFIG` / `FG_ROOT`; `FakeDetector`, `FakeRecognizer`, `FakePipeline`; `face_image()`, `prototype()`; `signed_in_client()` (test config uses cheap PBKDF2 and `min_sharpness: 0` because fake images are flat grey) |
 | `test_vision.py` | Alignment maths, SCRFD decoders, NMS, `l2_normalize`; real-model smoke test |
 | `test_service.py` | Enrollment rules, identification, all modes, margin, inactive people, cooldown, verify, settings persistence, cascade delete, ROC maths |
-| `test_api.py` | Every endpoint and error code (404, 409, 413/422, 503) through FastAPI's TestClient |
+| `test_api.py` | Every endpoint and error code (404, 409, 413/422, 503) through FastAPI's TestClient (signed in) |
+| `test_auth.py` | Route protection, public health, first-start admin file, password sign-in/lockout/logout, quality checks, face sign-in (match, unknown, unlinked, framing, lockout, liveness, models missing), unlink on person delete, user admin + role rules |
 
 ## How the fakes work
 Synthetic images encode identity in pixel `[0, 0]` = `(identity, variant, n_faces)`; identity 0 means "no face".

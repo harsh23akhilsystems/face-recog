@@ -1,7 +1,7 @@
 // Router, shell state (health, theme, mobile menu) and page lifecycle.
 // Each page module exports: title, subtitle, render(root, state) → HTML/DOM, mounted(root, state) → optional cleanup fn.
 
-import { api } from './api.js';
+import { api, auth } from './api.js';
 import { esc, hydrateIcons, icon } from './ui.js';
 import * as overview from './pages/overview.js';
 import * as live from './pages/live.js';
@@ -85,10 +85,25 @@ function initTheme() {
   paint();
 }
 
+async function initUser() {
+  const me = await auth.me();
+  if (!me) { location.replace('/login'); return; }
+  const u = me.user;
+  document.getElementById('user-name').textContent = u.display_name;
+  document.getElementById('user-how').textContent =
+    `${u.role === 'admin' ? 'Admin' : 'Staff'} · signed in with ${me.method === 'face' ? 'face' : 'password'}`;
+  document.getElementById('user-avatar').textContent = u.display_name.trim().slice(0, 1).toUpperCase();
+  document.getElementById('user-chip').hidden = false;
+  document.getElementById('logout-btn').addEventListener('click', async () => {
+    try { await auth.logout(); } finally { location.replace('/login'); }
+  });
+}
+
 document.getElementById('menu-btn').addEventListener('click', () => document.getElementById('sidebar').classList.toggle('open'));
 window.addEventListener('hashchange', navigate);
 window.addEventListener('fg:health', refreshHealth);
 initTheme();
 hydrateIcons(document);
+initUser();
 refreshHealth().then(navigate);
 setInterval(refreshHealth, 30000);

@@ -1,4 +1,8 @@
-"""FastAPI application: REST API under ``/api/v1`` plus the static web console at ``/``.
+"""FastAPI application: REST API under ``/api/v1``, sign-in under ``/auth``, the login page at ``/login`` and the
+static web console at ``/``.
+
+Every ``/api/v1`` route except ``/health`` requires a signed-in session (cookie); ``/`` redirects to ``/login``
+when there is none. ``/health`` stays public for monitoring but hides gallery details from anonymous callers.
 
 The service is created once at startup (``lifespan``) and stored on ``app.state`` so tests can
 inject a service built from fakes via ``create_app(service=...)``. Inference endpoints are plain
@@ -12,40 +16,22 @@ import sqlite3
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
-from typing import Annotated
 
-import numpy as np
 from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from facegate import __version__
+from facegate.api import auth_routes
+from facegate.api.deps import Auth, Svc, current_session, read_image, session_of
 from facegate.api.schemas import PersonCreate, PersonUpdate, RuntimeSettingsPatch
+from facegate.auth import AuthService
 from facegate.config import get_settings
 from facegate.service import FaceService
-from facegate.vision.pipeline import decode_image
 
 log = logging.getLogger(__name__)
 FRONTEND_DIR = Path(__file__).resolve().parents[3] / "frontend"
-
-
-def get_service(request: Request) -> FaceService:
-    return request.app.state.service
-
-
-Svc = Annotated[FaceService, Depends(get_service)]
-
-
-def read_image(svc: FaceService, upload: UploadFile) -> np.ndarray:
-    limit = svc.settings.api.max_upload_mb * 1024 * 1024
-    data = upload.file.read(limit + 1)
-    if len(data) > limit:
-        raise HTTPException(413, f"{upload.filename or 'file'} exceeds {svc.settings.api.max_upload_mb} MB")
-    try:
-        return decode_image(data)
-    except ValueError as exc:
-        raise HTTPException(422, f"{upload.filename or 'file'}: {exc}") from exc
 
 
 def require_ready(svc: FaceService) -> None:
@@ -54,17 +40,18 @@ def require_ready(svc: FaceService) -> None:
         raise HTTPException(503, f"Models not loaded: {', '.join(missing) or 'none'}. See README → Models.")
 
 
-router = APIRouter(prefix="/api/v1")
+public = APIRouter(prefix="/api/v1")
+router = APIRouter(prefix="/api/v1", dependencies=[Depends(current_session)])
 
 
 # ---------------------------------------------------------------------- system
-@router.get("/health", tags=["system"])
-def health(svc: Svc) -> dict:
-    return svc.health() | {
-        "version": __version__,
-        "app": svc.settings.app.name,
-        "organisation": svc.settings.app.organisation,
-    }
+@public.get("/health", tags=["system"])
+def health(request: Request, svc: Svc, auth: Auth) -> dict:
+    h = svc.health()
+    base = {"status": h["status"], "ready": h["ready"], "version": __version__, "app": svc.settings.app.name}
+    if session_of(request, auth) is None:
+        return base | {"signed_in": False}
+    return h | base | {"organisation": svc.settings.app.organisation, "signed_in": True}
 
 
 @router.get("/stats", tags=["system"])
@@ -218,6 +205,10 @@ def create_app(service: FaceService | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         if getattr(app.state, "service", None) is None:
             app.state.service = FaceService.from_settings(settings)
+        app.state.auth = AuthService(app.state.service)
+        created = app.state.auth.bootstrap_admin()
+        if created:
+            log.warning("First start: user 'admin' created; its password is in %s — sign in, then delete it", created)
         yield
         app.state.service.store.close()
 
@@ -232,7 +223,9 @@ def create_app(service: FaceService | None = None) -> FastAPI:
         app.add_middleware(
             CORSMiddleware, allow_origins=settings.api.cors_origins, allow_methods=["*"], allow_headers=["*"]
         )
+    app.include_router(public)
     app.include_router(router)
+    app.include_router(auth_routes.router)
 
     @app.middleware("http")
     async def revalidate_assets(request: Request, call_next):
@@ -246,8 +239,16 @@ def create_app(service: FaceService | None = None) -> FastAPI:
         app.mount("/assets", StaticFiles(directory=FRONTEND_DIR / "assets"), name="assets")
 
         @app.get("/", include_in_schema=False)
-        def index() -> FileResponse:
+        def index(request: Request, auth: Auth) -> Response:
+            if session_of(request, auth) is None:
+                return RedirectResponse("/login", status_code=303)
             return FileResponse(FRONTEND_DIR / "index.html", headers={"Cache-Control": "no-cache"})
+
+        @app.get("/login", include_in_schema=False)
+        def login_page(request: Request, auth: Auth) -> Response:
+            if session_of(request, auth) is not None:
+                return RedirectResponse("/", status_code=303)
+            return FileResponse(FRONTEND_DIR / "login.html", headers={"Cache-Control": "no-cache"})
 
     return app
 

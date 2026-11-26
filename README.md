@@ -30,6 +30,10 @@ make models             # SCRFD + ArcFace from InsightFace buffalo_l (~280 MB do
 make serve              # http://localhost:8100  ·  API docs at /docs
 ```
 
+On first start the server creates the user **`admin`** and writes its random password to
+`data/initial_admin_credentials.txt` (owner-only). Open http://localhost:8100 → you land on **/login** → sign in,
+then delete that file and create real accounts with `facegate user add` (see **Sign-in** below).
+
 Then in the console: **People → Add person → upload 3–5 photos**, and open **Live recognition**.
 
 > Webcam access requires `http://localhost` or HTTPS. To use cameras on other machines, put FaceGate behind a
@@ -66,6 +70,29 @@ falls back to the available model.
 | **Activity log** | Every recognition (with cooldown), filter by status, CSV export |
 | **Settings** | Matching mode, thresholds, uncertainty margin, logging — applied live, persisted to `data/settings.json` |
 
+### Sign-in
+
+The console and every `/api/v1` route (except `/health`) need a signed-in session. The login page (`/login`) offers:
+
+- **Password** — accounts are managed with the CLI or the admin API (`/auth/users`).
+- **Face** — for users whose account is *linked* to their person in the gallery. It uses the same SCRFD + ArcFace /
+  AdaFace models and the same enrolled photos as recognition, matched in `auth.face_mode` (`strict` by default). The
+  camera view guides the user (scan animation, "move closer", "too dark", …) and only submits a frame once it passes
+  the quality checks. An optional MiniFAS liveness model (`auth.liveness`) rejects photos and screens.
+
+```bash
+facegate user add alice --name "Alice Rao" --employee-id E104    # prompts for the password; links face sign-in
+facegate user add ops-lead --role admin                          # admin = may manage users (password session only)
+facegate user link bob --employee-id E221                        # enable face sign-in for an existing user
+facegate user link bob --unlink
+facegate user passwd alice                                       # also ends alice's sessions
+facegate user list
+facegate user remove bob
+```
+
+Settings live under `auth:` in `configs/config.yaml` (session length, lockout, `cookie_secure` for HTTPS, quality
+thresholds, liveness). Behind HTTPS set `auth.cookie_secure: true`.
+
 ### CLI
 
 ```bash
@@ -95,9 +122,11 @@ src/facegate/
   gallery/                   store.py (SQLite) · matcher.py (1:N, fusion/strict, margin)
   service.py                 business rules: enrollment gates, duplicates, events, runtime settings
   evaluation.py              ROC / EER / TAR@FAR threshold calibration
-  api/                       FastAPI app (REST under /api/v1, console at /)
+  auth.py                    sign-in: users, sessions, audit log, password + face sign-in, lockout
+  quality.py                 live-camera framing/lighting checks for face sign-in
+  api/                       FastAPI app (REST under /api/v1, sign-in under /auth, login page at /login, console at /)
   cli.py                     facegate <command>
-frontend/                    index.html + assets/{css,js/pages} — vanilla ES modules, no build
+frontend/                    index.html (console) · login.html (sign-in) + assets/{css,js/pages,img} — no build
 scripts/                     download_models.py · export_adaface_onnx.py
 tests/                       fake-pipeline unit/API tests + real-model smoke test (auto-skips without weights)
 .claude/skills/              task playbooks for Claude Code

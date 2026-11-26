@@ -62,3 +62,33 @@ events:
 api:
   max_upload_mb: 8
   cors_origins: []                    # same-origin by default; add origins only if you host the UI elsewhere
+
+auth:
+  # Console sign-in. First start creates user "admin" with a random password written to
+  # data/initial_admin_credentials.txt — sign in, then delete that file. Manage users with `facegate user …`.
+  session_hours: 8
+  cookie_name: fg_session
+  cookie_secure: false                # set true when served over HTTPS
+  password_min_length: 8
+  password_iterations: 600000         # PBKDF2-SHA256
+  max_failed_per_user: 5              # password failures per username within the window → locked
+  max_failed_face_per_client: 10      # face failures per client IP within the window → locked
+  lock_window_minutes: 15
+  face_login: true                    # users linked to a gallery person can sign in with their face
+  face_mode: strict                   # strict = every loaded recognizer must agree on the same person
+  quality:                            # live-camera checks before a face sign-in attempt
+    min_det_score: 0.60
+    good_det_score: 0.75
+    min_face_frac: 0.18               # face width / frame width
+    max_face_frac: 0.80
+    min_face_px: 80
+    max_center_offset: 0.30
+    min_sharpness: 40.0
+    min_brightness: 60.0
+    max_brightness: 210.0
+    max_yaw: 0.25
+    max_roll_deg: 15.0
+  liveness:                           # passive anti-spoof; missing file → check skipped (see SECURITY.md)
+    mode: enforce                     # enforce | log | off
+    file: face_antispoof_minifas_int8.onnx
+    threshold: 0.0

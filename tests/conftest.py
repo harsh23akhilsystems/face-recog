@@ -7,9 +7,13 @@ Tests use a temp config/db via ``FG_CONFIG`` / ``FG_ROOT`` and never touch ``dat
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+
 import numpy as np
 import pytest
 import yaml
+from fastapi.testclient import TestClient
 
 from facegate.config import load_settings
 from facegate.gallery.store import GalleryStore
@@ -93,6 +97,8 @@ def settings(tmp_path, monkeypatch):
         "matching": {"mode": "fusion", "fusion_threshold": 0.3, "margin": 0.05},
         "enrollment": {"min_face_px": 80, "min_det_score": 0.7, "min_sharpness": 40.0, "max_samples_per_person": 5},
         "events": {"cooldown_seconds": 60},
+        # Cheap hashing for speed; synthetic images are flat grey, so sharpness can't be checked.
+        "auth": {"password_iterations": 1000, "quality": {"min_sharpness": 0.0}},
     }
     path = tmp_path / "config.yaml"
     path.write_text(yaml.safe_dump(cfg))
@@ -106,3 +112,18 @@ def service(settings):
     svc = FaceService(settings, FakePipeline(), GalleryStore(settings.database_path))
     yield svc
     svc.store.close()
+
+
+TEST_PASSWORD = "correct-horse-1"
+
+
+@contextmanager
+def signed_in_client(service: FaceService, username: str = "tester", role: str = "admin") -> Iterator[TestClient]:
+    """TestClient over ``create_app(service)`` with a fresh user already signed in by password."""
+    from facegate.api.main import create_app
+
+    with TestClient(create_app(service)) as c:
+        c.app.state.auth.create_user(username, TEST_PASSWORD, role=role)
+        r = c.post("/auth/login", json={"username": username, "password": TEST_PASSWORD})
+        assert r.status_code == 200, r.text
+        yield c

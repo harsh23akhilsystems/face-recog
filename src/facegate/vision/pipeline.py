@@ -43,10 +43,21 @@ class ModelStatus:
     providers: list[str] = field(default_factory=list)
 
 
+class Liveness(Protocol):
+    def score(self, img_bgr: np.ndarray, bbox: np.ndarray) -> dict: ...
+
+
 class FacePipeline:
-    def __init__(self, detector: Detector | None, recognizers: dict[str, Recognizer], status: list[ModelStatus]):
+    def __init__(
+        self,
+        detector: Detector | None,
+        recognizers: dict[str, Recognizer],
+        status: list[ModelStatus],
+        liveness: Liveness | None = None,
+    ):
         self.detector = detector
         self.recognizers = recognizers
+        self.liveness = liveness  # optional anti-spoof model used by face sign-in
         self._status = status
         # ONNX Runtime sessions are thread-safe, but we serialise to keep CPU latency predictable
         # under concurrent webcam streams instead of oversubscribing cores.
@@ -93,7 +104,21 @@ class FacePipeline:
             except Exception as exc:  # noqa: BLE001
                 log.warning("Recognizer %s unavailable: %s", name, exc)
                 status.append(ModelStatus(name, "recognizer", cfg.file, False, True, error=str(exc)))
-        return cls(detector, recognizers, status)
+
+        liveness = None
+        lv_cfg = settings.auth.liveness
+        if lv_cfg.mode == "off":
+            status.append(ModelStatus("minifas", "liveness", lv_cfg.file, False, False))
+        else:
+            from facegate.vision.liveness import MiniFASLiveness
+
+            try:
+                liveness = MiniFASLiveness(settings.models_dir / lv_cfg.file, providers, lv_cfg.threshold, threads)
+                status.append(ModelStatus("minifas", "liveness", lv_cfg.file, True, True, providers=liveness.providers))
+            except Exception as exc:  # noqa: BLE001 - optional model: report, never crash
+                log.warning("Liveness model unavailable (face sign-in runs without it): %s", exc)
+                status.append(ModelStatus("minifas", "liveness", lv_cfg.file, False, True, error=str(exc)))
+        return cls(detector, recognizers, status, liveness)
 
     # ------------------------------------------------------------------ introspection
     def status(self) -> list[ModelStatus]:
@@ -113,6 +138,13 @@ class FacePipeline:
             raise RuntimeError("Face detector is not loaded")
         with self._lock:
             return self.detector.detect(img_bgr)
+
+    def check_liveness(self, img_bgr: np.ndarray, bbox: np.ndarray) -> dict | None:
+        """Anti-spoof score for one face box, or ``None`` when no liveness model is loaded."""
+        if self.liveness is None:
+            return None
+        with self._lock:
+            return self.liveness.score(img_bgr, bbox)
 
     def analyze(self, img_bgr: np.ndarray, max_faces: int | None = None) -> list[Face]:
         """Detect faces and attach aligned crops, sharpness and one embedding per recognizer."""

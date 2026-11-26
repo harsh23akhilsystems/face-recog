@@ -90,6 +90,10 @@ svg.icon { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: no
 .nav a:hover { background: var(--surface-2); color: var(--text); }
 .nav a.active { background: var(--primary-soft); color: var(--primary); }
 .sidebar-foot { margin-top: auto; display: flex; flex-direction: column; gap: 8px; }
+.user-chip { display: flex; align-items: center; gap: 10px; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
+.user-meta { min-width: 0; flex: 1; }
+.user-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.user-how { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .system-status { display: flex; align-items: center; gap: 8px; padding: 10px; border-radius: var(--radius-sm); background: var(--surface-2); font-size: 12px; font-weight: 500; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); flex: none; }
 .system-status.ok .dot { background: var(--success); box-shadow: 0 0 0 3px var(--success-soft); }

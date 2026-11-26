@@ -7,6 +7,7 @@ shell than from the browser, and they are scriptable for HR onboarding jobs.
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
 import logging
 import sys
@@ -14,8 +15,10 @@ from pathlib import Path
 
 import cv2
 
+from facegate.auth import AuthService
 from facegate.config import get_settings
 from facegate.evaluation import IMAGE_EXT, evaluate
+from facegate.gallery.store import GalleryStore
 from facegate.service import FaceService
 from facegate.vision.pipeline import FacePipeline
 
@@ -92,6 +95,69 @@ def cmd_reembed(_: argparse.Namespace) -> None:
     print(_service().reembed())
 
 
+# ---------------------------------------------------------------------- users
+def _auth() -> AuthService:
+    """Account management needs only the database, not the ONNX models."""
+    settings = get_settings()
+    return AuthService(FaceService(settings, FacePipeline(None, {}, []), GalleryStore(settings.database_path)))
+
+
+def _password(args: argparse.Namespace) -> str:
+    if args.password:
+        return args.password
+    pw = getpass.getpass("Password: ")
+    if pw != getpass.getpass("Repeat password: "):
+        raise SystemExit("Passwords do not match")
+    return pw
+
+
+def _person_id(auth: AuthService, args: argparse.Namespace) -> str | None:
+    """Resolve --person-id or --employee-id to a gallery person id ("" = unlink)."""
+    if getattr(args, "unlink", False):
+        return ""
+    if args.employee_id:
+        match = [p for p in auth.store.list_people(query=args.employee_id) if p["employee_id"] == args.employee_id]
+        if not match:
+            raise SystemExit(f"No gallery person with employee ID {args.employee_id!r}")
+        return match[0]["id"]
+    return args.person_id
+
+
+def _user_or_exit(auth: AuthService, username: str):
+    user = auth.get_by_username(username)
+    if user is None:
+        raise SystemExit(f"No active user {username!r}")
+    return user
+
+
+def cmd_user(args: argparse.Namespace) -> None:
+    auth = _auth()
+    try:
+        if args.action == "list":
+            for u in auth.list_users():
+                face = f"face → {u['person_name']}" if u["person_id"] else "password only"
+                print(f"{u['username']:<20} {u['role']:<6} {u['display_name']:<28} {face}")
+        elif args.action == "add":
+            u = auth.create_user(args.username, _password(args), args.name, args.role, _person_id(auth, args))
+            print(f"Created {u.username} ({u.role})" + (" with face sign-in" if u.person_id else ""))
+        elif args.action == "link":
+            u = auth.update_user(_user_or_exit(auth, args.username).id, person_id=_person_id(auth, args) or "")
+            print(f"{u.username}: " + ("face sign-in linked" if u.person_id else "face sign-in removed"))
+        elif args.action == "passwd":
+            auth.update_user(_user_or_exit(auth, args.username).id, password=_password(args))
+            print(f"Password changed for {args.username}; their sessions were ended")
+        elif args.action == "remove":
+            user = _user_or_exit(auth, args.username)
+            if user.is_admin and auth.active_admins() <= 1:
+                raise SystemExit("Refusing to remove the last administrator")
+            auth.deactivate_user(user.id)
+            print(f"Removed {args.username}")
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    finally:
+        auth.store.close()
+
+
 def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     ap = argparse.ArgumentParser(prog="facegate", description="FaceGate face recognition CLI")
@@ -121,6 +187,30 @@ def main(argv: list[str] | None = None) -> None:
     p.set_defaults(func=cmd_evaluate)
 
     sub.add_parser("reembed", help="recompute embeddings from stored thumbnails").set_defaults(func=cmd_reembed)
+
+    p = sub.add_parser("user", help="manage console sign-in accounts")
+    us = p.add_subparsers(dest="action", required=True)
+    us.add_parser("list", help="list active users").set_defaults(func=cmd_user)
+    for action, text in (("add", "create a user"), ("link", "link/unlink a user to a gallery person for face sign-in")):
+        q = us.add_parser(action, help=text)
+        q.add_argument("username")
+        who = q.add_mutually_exclusive_group(required=action == "link")
+        who.add_argument("--person-id", help="gallery person id (People page / API)")
+        who.add_argument("--employee-id", help="gallery person's employee ID")
+        if action == "link":
+            who.add_argument("--unlink", action="store_true", help="remove face sign-in")
+        else:
+            q.add_argument("--name", help="display name")
+            q.add_argument("--role", choices=["admin", "staff"], default="staff")
+            q.add_argument("--password", help="omit to be prompted (keeps it out of shell history)")
+        q.set_defaults(func=cmd_user)
+    q = us.add_parser("passwd", help="set a new password")
+    q.add_argument("username")
+    q.add_argument("--password", help="omit to be prompted")
+    q.set_defaults(func=cmd_user)
+    q = us.add_parser("remove", help="deactivate a user")
+    q.add_argument("username")
+    q.set_defaults(func=cmd_user)
 
     args = ap.parse_args(argv)
     args.func(args)

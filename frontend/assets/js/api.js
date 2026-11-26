@@ -15,6 +15,11 @@ async function request(path, { method = 'GET', json, form, signal } = {}) {
     if (e.name === 'AbortError') throw e;
     throw new ApiError(0, 'Cannot reach the FaceGate server. Is it running?');
   }
+  if (res.status === 401) {
+    // Session expired or signed out in another tab: go to the sign-in page.
+    location.replace('/login');
+    throw new ApiError(401, 'Signed out');
+  }
   if (res.status === 204) return null;
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -26,6 +31,11 @@ async function request(path, { method = 'GET', json, form, signal } = {}) {
 }
 
 const fd = (entries) => { const f = new FormData(); for (const [k, v] of entries) if (v !== undefined && v !== null) f.append(k, v); return f; };
+
+export const auth = {
+  me: () => fetch('/auth/me').then((r) => (r.ok ? r.json() : null)),
+  logout: () => fetch('/auth/logout', { method: 'POST' }),
+};
 
 export const api = {
   health: () => request('/health'),

@@ -3,11 +3,15 @@
 ## Files
 | File | Responsibility |
 |---|---|
-| `main.py` | `create_app()`, all endpoints, upload checks (`read_image`), `require_ready`, static console at `/`, asset revalidation |
+| `main.py` | `create_app()`, `/api/v1` endpoints, `require_ready`, `/login` page, console at `/` (redirects to `/login` when signed out), asset revalidation; creates `AuthService` + first-start admin in `lifespan` |
+| `auth_routes.py` | `/auth/*`: password + face sign-in, quality check, logout, `me`, face status, user admin, login events |
+| `deps.py` | Shared dependencies: `get_service`, `get_auth`, `read_image`, `client_id`, `current_session`, `admin_session` |
 | `schemas.py` | JSON bodies: `PersonCreate`, `PersonUpdate`, `RuntimeSettingsPatch` |
 
 ## Rules
 - Base path `/api/v1`. Interactive docs at `/docs`.
+- **Every `/api/v1` route except `/health` needs a session** (HttpOnly `fg_session` cookie, SameSite=Lax) → 401
+  otherwise. `/health` is public but, signed out, returns only `{status, ready, version, app, signed_in: false}`.
 - The API never runs inference directly — it calls `FaceService`. Inference handlers are sync `def` so FastAPI runs
   them in its threadpool.
 - Images are `multipart/form-data` (JPEG/PNG/WebP/BMP, ≤ `api.max_upload_mb`).
@@ -16,10 +20,13 @@
 
 | Status | Meaning |
 |---|---|
-| 404 | person / sample / thumbnail not found |
+| 401 | not signed in; bad credentials; face not recognised / liveness failed |
+| 403 | admin-only route; admin route from a face session; face sign-in turned off |
+| 404 | person / sample / thumbnail / user not found |
 | 409 | duplicate `employee_id` |
 | 413 | upload too large |
-| 422 | invalid body, undecodable image, no face (verify), unknown mode |
+| 422 | invalid body, undecodable image, no face (verify), unknown mode, face sign-in framing problem (advice in `detail`), invalid user data |
+| 429 | sign-in locked: ≥ `max_failed_per_user` password failures for the username, or ≥ `max_failed_face_per_client` face failures from the IP, within `lock_window_minutes` |
 | 503 | required models not loaded — message lists the missing files |
 
 ## System
@@ -62,3 +69,20 @@
 ```bash
 curl -s -F image=@door.jpg -F mode=strict -F source=door-1 localhost:8100/api/v1/recognize | jq '.faces[] | {status, name: .person.name, score}'
 ```
+
+## Sign-in (`/auth`, no `/api/v1` prefix)
+| Method | Path | Access | Body | Notes |
+|---|---|---|---|---|
+| POST | `/auth/login` | public | `{username, password}` | sets the session cookie → `{user, method: "password"}` |
+| POST | `/auth/face` | public | multipart `image` | quality → liveness → match in `auth.face_mode` → linked active user → `{user, method: "face", score}` |
+| POST | `/auth/quality` | public | multipart `image` | `{ok, issues[], advice[], checks[], face:{box:[x,y,w,h] relative, score}, faces_found, image_size}`; nothing stored |
+| GET | `/auth/face/status` | public | | `{available, any_enrolled, liveness}` — no user data |
+| POST | `/auth/logout` | any | | ends the session, clears the cookie |
+| GET | `/auth/me` | session | | `{user, method, face}` |
+| GET | `/auth/events?limit=` | admin | | login audit log, newest first |
+| GET / POST | `/auth/users` | admin | `{username, password, display_name?, role?, person_id?}` | 201; 422 on duplicate username, short password, unknown or already-linked person |
+| PATCH | `/auth/users/{id}` | admin | any of `display_name, role, person_id ("" unlinks), password` | password change ends that user's sessions; 409 demoting the last admin |
+| DELETE | `/auth/users/{id}` | admin | | 204; soft delete (audit trail kept), sessions ended; 409 on yourself |
+
+`user` = `{id, username, display_name, role, person_id, face_login, created_at}`. "admin" = role `admin` **and** a
+password session. Face-sign-in framing failures (422) are logged as `rejected` and do not count towards lockout.

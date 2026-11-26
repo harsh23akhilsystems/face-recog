@@ -83,6 +83,45 @@ class ApiCfg(BaseModel):
     cors_origins: list[str] = Field(default_factory=list)
 
 
+class QualityCfg(BaseModel):
+    """Live-camera checks run before a face-login attempt (and by the login page every ~600 ms)."""
+
+    min_det_score: float = 0.60  # SCRFD confidence to count a face at all
+    good_det_score: float = 0.75  # below this the face is "unclear"
+    min_face_frac: float = 0.18  # face width / image width
+    max_face_frac: float = 0.80
+    min_face_px: int = 80
+    max_center_offset: float = 0.30  # face centre distance from image centre, as a fraction of the size
+    min_sharpness: float = 40.0  # variance of Laplacian on the grey face box
+    min_brightness: float = 60.0  # mean grey level on the face box (0-255)
+    max_brightness: float = 210.0
+    max_yaw: float = 0.25  # nose offset from the eye midpoint / eye distance
+    max_roll_deg: float = 15.0  # eye-line tilt
+
+
+class LivenessCfg(BaseModel):
+    """Passive anti-spoof (MiniFAS ONNX). A missing file disables the check; it never blocks startup."""
+
+    mode: Literal["enforce", "log", "off"] = "enforce"
+    file: str = "face_antispoof_minifas_int8.onnx"
+    threshold: float = 0.0  # minimum (real - spoof) logit difference; 0.0 = probability 0.5
+
+
+class AuthCfg(BaseModel):
+    session_hours: int = 8
+    cookie_name: str = "fg_session"
+    cookie_secure: bool = False  # set true behind HTTPS so the session cookie is never sent in clear text
+    password_min_length: int = 8
+    password_iterations: int = 600_000  # PBKDF2-SHA256
+    max_failed_per_user: int = 5  # password failures per username ...
+    max_failed_face_per_client: int = 10  # ... or face failures per client IP ...
+    lock_window_minutes: int = 15  # ... within this window lock further attempts
+    face_login: bool = True
+    face_mode: MatchMode = "strict"  # matching mode for sign-in; strict = every loaded model must agree
+    quality: QualityCfg = Field(default_factory=QualityCfg)
+    liveness: LivenessCfg = Field(default_factory=LivenessCfg)
+
+
 class Settings(BaseModel):
     app: AppCfg = Field(default_factory=AppCfg)
     paths: PathsCfg = Field(default_factory=PathsCfg)
@@ -93,6 +132,7 @@ class Settings(BaseModel):
     enrollment: EnrollmentCfg = Field(default_factory=EnrollmentCfg)
     events: EventsCfg = Field(default_factory=EventsCfg)
     api: ApiCfg = Field(default_factory=ApiCfg)
+    auth: AuthCfg = Field(default_factory=AuthCfg)
 
     # Resolved at load time, not read from YAML.
     root: Path = PROJECT_ROOT
@@ -105,6 +145,10 @@ class Settings(BaseModel):
     @property
     def models_dir(self) -> Path:
         return self.path(self.paths.models_dir)
+
+    @property
+    def data_dir(self) -> Path:
+        return self.path(self.paths.data_dir)
 
     @property
     def database_path(self) -> Path:
