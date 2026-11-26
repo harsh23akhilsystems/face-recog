@@ -139,6 +139,18 @@ function poseFor(face, step, baseline) {
   const yaw = face.pose?.yaw ?? 0, pitch = (face.pose?.pitch ?? 0) - (baseline?.pitch ?? 0);
   return { yaw: step.hint === 'center' ? yaw : yaw - (baseline?.yaw ?? 0), pitch };
 }
+/**
+ * A step with its turn/tilt range relaxed: the inner edge (the one nearest straight-ahead) × `factor`. Used once a
+ * direction has been unfinished for `relax_after_ms`, so a person who cannot turn as far still completes the scan.
+ */
+function relaxed(step, factor) {
+  if (factor >= 1 || step.hint === 'center') return step;
+  const key = step.hint === 'left' || step.hint === 'right' ? 'yaw' : 'pitch';
+  const r = step[key];
+  if (!r) return step;
+  const inner = r[0] >= 0 ? [r[0] * factor, r[1]] : [r[0], r[1] * factor];
+  return { ...step, [key]: inner };
+}
 /** How well a frame fits a step: 0 = middle of its pose range … 1 = edge; -1 = outside (or not measurable yet). */
 function stepFit(j, step, baseline) {
   if (step.hint !== 'center' && baseline === null) return -1; // every turn is measured against the frontal frame
@@ -269,6 +281,17 @@ export async function guidedCapture({ name, existing = 0, enroll, checkDuplicate
     // step index -> {blob, q, pose, saved}. `saved` entries were enrolled already and are never re-sent.
     const best = new Map();
     let phases = allPhases, pi = 0, phase = null, phaseFilledAt = 0, lastRemind = 0, scanStart = 0, baseline = null;
+    let phaseStart = 0;
+    /** Step `k` as currently judged: relaxed once its direction has been unfinished for `relax_after_ms`. */
+    const stepAt = (k) => {
+      return lateNow() && phase?.steps.includes(k) ? relaxed(steps[k], guide.relax_factor ?? 1) : steps[k];
+    };
+    const lateNow = () => !!phase && performance.now() - phaseStart >= (guide.relax_after_ms ?? Infinity);
+    /**
+     * Too much movement for a sharp frame? Landmark-based motion gets noisy at deep turns (the far eye is guessed),
+     * which can block "Hold still" forever; once a direction is late, only the image-based stillness is used.
+     */
+    const isMoving = (j) => (!lateNow() && j.motion > guide.max_motion) || j.diff > 3 * guide.still_diff;
     let skipped = false; // the scan only ends with angles missing if the operator pressed "Skip this angle"
     let prevFace = null, prevAt = 0, prevMotion = Infinity, prevThumb = null, maxSharp = 0; // motion tracking + sharpest frame seen (for relative sharpness)
 
@@ -331,7 +354,7 @@ export async function guidedCapture({ name, existing = 0, enroll, checkDuplicate
       // Directions whose angles were already caught on the way (e.g. while turning back) need no instruction.
       while (i < phases.length && phases[i].hint !== 'center' && phases[i].steps.every((k) => best.has(k))) i += 1;
       if (i >= phases.length) { phase = phases[phases.length - 1]; finishOrRevisit(); return; }
-      pi = i; phase = phases[i]; phaseFilledAt = 0; lastRemind = performance.now();
+      pi = i; phase = phases[i]; phaseFilledAt = 0; lastRemind = phaseStart = performance.now();
       say(phase.prompt, voiceOn);
       paint();
     };
@@ -359,18 +382,20 @@ export async function guidedCapture({ name, existing = 0, enroll, checkDuplicate
       if (pi + 1 < phases.length) startPhase(pi + 1); else finishOrRevisit();
     };
 
-    /** Offer one analysed frame to every unsaved step it fits; keep it where it beats the current best. */
     /**
      * Offer one analysed frame to the single unsaved step it fits best (one frame never fills two angles), and keep
      * it if it beats that step's current best. Frames taken while the head is moving are not eligible (motion blur).
      */
     const offer = (j, blob) => {
-      if (j.motion > guide.max_motion || j.diff > 3 * guide.still_diff) return; // moving → motion blur
-      let k = -1, fit = 2;
-      steps.forEach((step, i) => {
+      if (isMoving(j)) return; // moving → motion blur
+      // An angle that has no photo yet wins over a better-fitting one that already has one: with overlapping
+      // (relaxed) ranges, "slight right" would otherwise keep every frame and "right" would never fill.
+      let k = -1, fit = 2, rank = 2;
+      steps.forEach((_, i) => {
         if (best.get(i)?.saved) return;
-        const d = stepFit(j, step, baseline);
-        if (d >= 0 && d < fit) { k = i; fit = d; }
+        const d = stepFit(j, stepAt(i), baseline);
+        const r = best.has(i) ? 1 : 0;
+        if (d >= 0 && (r < rank || (r === rank && d < fit))) { k = i; fit = d; rank = r; }
       });
       if (k < 0) return;
       const cand = { blob, pose: j.face.pose, sharp: j.face.face_sharpness ?? j.face.sharpness, det: j.face.det_score, centre: j.centre, motion: j.motion, diff: j.diff, fit };
@@ -385,8 +410,8 @@ export async function guidedCapture({ name, existing = 0, enroll, checkDuplicate
 
     /** Coaching text while the current direction's angles are not reached yet. */
     const coach = (j) => {
-      const missing = phase.steps.filter((k) => !best.has(k)).map((k) => steps[k]);
-      const moving = j.motion > guide.max_motion || j.diff > 3 * guide.still_diff;
+      const missing = phase.steps.filter((k) => !best.has(k)).map(stepAt);
+      const moving = isMoving(j);
       if (!missing.length) return moving ? 'Hold still…' : 'Perfect — hold still';
       const s = missing[0];
       const { yaw, pitch } = poseFor(j.face, s, baseline);
@@ -415,7 +440,7 @@ export async function guidedCapture({ name, existing = 0, enroll, checkDuplicate
       if (!running || !phase) { g.classList.add('hidden'); return; }
       g.classList.remove('hidden');
       const missingK = phase.steps.find((k) => !best.has(k));
-      const step = steps[missingK ?? phase.steps[phase.steps.length - 1]];
+      const step = stepAt(missingK ?? phase.steps[phase.steps.length - 1]);
       const [tx, ty] = toXY(rangeMid(step.yaw), rangeMid(step.pitch));
       let hit = missingK === undefined, over = false, you = null;
       if (j?.face) {
@@ -428,7 +453,7 @@ export async function guidedCapture({ name, existing = 0, enroll, checkDuplicate
       }
       // Hold progress: how long the head has been in position *and* still (the sharp-frame window).
       const now = performance.now();
-      const still = hit && j?.face && j.motion <= guide.max_motion && j.diff <= 3 * guide.still_diff;
+      const still = hit && j?.face && !isMoving(j);
       if (!still) holdStart = 0; else if (!holdStart) holdStart = now;
       const holdFrac = holdStart ? Math.min(1, (now - holdStart) / Math.max(1, guide.best_window_ms)) : 0;
       const captured = {};

@@ -82,7 +82,8 @@ Pages flagged `needsModels` show a notice listing missing model files and the co
   timeout**: while a direction is unfinished the most specific coaching line is spoken again every `remind_ms`, and the
   video keeps running. Directions already completed on the way are skipped; after the last direction any phase with a
   missing angle is revisited. The scan ends — and auto-saves — only when every angle has a frame. The best frontal frame sets the yaw *and* pitch baseline
-  for every other angle (`poseFor` in `guided.js`). Inner arc = phase time; ring segment fills when a step gets its first frame. No video file is kept.
+  for every other angle (`poseFor` in `guided.js`). A direction unfinished after `relax_after_ms` accepts a shallower angle
+  (inner range edge × `relax_factor`) and judges stillness from the image only, so nobody gets stuck on an angle. Inner arc = phase time; ring segment fills when a step gets its first frame. No video file is kept.
 - **Skip this angle** ends the current phase and allows the scan to finish with that angle missing.
 - **Automatic retakes.** When the scan ends, the chosen photos go to `POST /people/{id}/samples/check` (dry-run
   enroll — the in-scan check uses a smaller detector input and can be more lenient, e.g. side-angle confidence).

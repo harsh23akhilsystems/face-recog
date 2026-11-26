@@ -45,8 +45,9 @@ scan ends — only once every step has a frame (`best_window_ms` after a directi
 directions are re-announced every `remind_ms`, never skipped automatically).
 All photos then go through `enroll` unchanged — guided capture adds no server-side bypass.
 Each step: `key`, `prompt`, `hint` (center/left/right/up/down), `yaw` and `pitch` as `[min, max]` or `null`.
-`yaw` ≈ sin(angle), + = person turned to *their* left; `pitch` is relative to that person's frontal capture,
-− = chin up. Defaults: front, slight left, left, slight right, right, chin up, chin down (7 photos).
+`yaw` ≈ tan(angle), + = person turned to *their* left; − `pitch` = chin up. Except for `front` (absolute yaw), both
+are measured from that person's own frontal capture, so left and right need the same turn even if the face rests
+slightly turned. Defaults: front, slight left, left, slight right, right, chin up, chin down (7 photos).
 
 ## Recognition & events (`FaceService.recognize`)
 - Uses `effective_mode` (falls back if a model is missing).
